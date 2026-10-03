@@ -1,1571 +1,2686 @@
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+const state = {
+  batches: [],
+  searchTerm: "",
+  currentBatch: null,
+  activeCourseUrl: "",
+  hls: null,
+  premiumToken: localStorage.getItem("prepMasterPremiumToken") || "",
+  premiumType: localStorage.getItem("prepMasterPremiumType") || ""
+};
+
+const DEFAULT_24H_URL = "https://vplink.in/lkWPb";
+let publicConfig = {
+  purchaseTelegram: "Subhanali011",
+  telegramChannel: "prepmaster0",
+  twentyFourHourUrl: DEFAULT_24H_URL
+};
+
+async function loadPublicConfig() {
+  try {
+    const data = await api("/api/public-config");
+    if (data?.config) publicConfig = { ...publicConfig, ...data.config };
+  } catch (error) {
+    console.warn("Public config unavailable:", error);
+  }
 }
 
-:root {
-  --bg: #080808;
-  --surface: #111111;
-  --surface2: #171717;
-  --surface3: #1d1d1d;
+function hasSavedPremium() {
+  return Boolean(state.premiumToken);
+}
 
-  --blue: #3b82f6;
-  --blue2: #2563eb;
+async function checkSavedPremium() {
+  if (!state.premiumToken) return false;
+  try {
+    const response = await fetch(`/api/check-premium?token=${encodeURIComponent(state.premiumToken)}`);
+    if (!response.ok) throw new Error("expired");
+    const data = await response.json();
+    if (data.valid) return true;
+  } catch {}
+  localStorage.removeItem("prepMasterPremiumToken");
+  localStorage.removeItem("prepMasterPremiumType");
+  state.premiumToken = "";
+  state.premiumType = "";
+  return false;
+}
 
-  --text: #f5f5f5;
-  --muted: #9a9a9a;
+function savePremium(data) {
+  state.premiumToken = data.token;
+  state.premiumType = data.type || "";
+  localStorage.setItem("prepMasterPremiumToken", state.premiumToken);
+  localStorage.setItem("prepMasterPremiumType", state.premiumType);
+}
 
-  --border: #292929;
+async function verifyPremiumKey(key) {
+  const clean = String(key || "").trim();
+  if (!clean) {
+    showToast("Please enter a premium key");
+    return false;
+  }
+  try {
+    const response = await fetch("/api/verify-premium-key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: clean })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Invalid key");
+    }
+    savePremium(data);
+    showToast(data.type === "lifetime" ? "👑 Lifetime Premium activated" : "✅ 24H Premium activated");
+    return true;
+  } catch (error) {
+    showToast(error.message || "Key verification failed");
+    return false;
+  }
+}
 
-  --shadow:
-    0 18px 55px rgba(0, 0, 0, .35);
+function showPremiumGate() {
+  const gate = $("premiumGate");
+  if (!gate) return;
+  gate.classList.remove("hidden");
+  document.body.classList.add("viewer-open");
+}
 
-  --viewer-header-height: 76px;
+function hidePremiumGate() {
+  const gate = $("premiumGate");
+  if (!gate) return;
+  gate.classList.add("hidden");
+  document.body.classList.remove("viewer-open");
+}
+
+function openPremiumCourse() {
+  const batch = state.currentBatch;
+  if (!batch) return;
+
+  const viewer = $("courseViewer");
+  const frame = $("courseFrame");
+  const loading = $("courseLoading");
+  const errorBox = $("courseError");
+  const title = $("courseTitle");
+  const url = `https://sahukgs.com/batch/${encodeURIComponent(batch.id)}`;
+
+  state.activeCourseUrl = url;
+  document.title = `${batch.title || "Batch"} - Prep Master`;
+  if (title) title.textContent = batch.title || `Batch ${batch.id}`;
+  if (errorBox) errorBox.classList.add("hidden");
+  if (loading) loading.classList.remove("hidden");
+  hidePremiumGate();
+
+  // Keep the Prep Master header visible and load the selected batch inside it.
+  if (viewer) viewer.classList.remove("hidden");
+  document.body.classList.add("viewer-open");
+  if (frame) frame.src = url;
+}
+
+
+const $ = (id) =>
+  document.getElementById(id);
+
+
+// ==================================================
+// HELPERS
+// ==================================================
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(
+    /[&<>"']/g,
+    ch => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;"
+    }[ch])
+  );
+}
+
+
+function showToast(message) {
+  const toast = $("toast");
+
+  if (!toast) return;
+
+  toast.textContent = message;
+
+  toast.classList.add("show");
+
+  clearTimeout(showToast.timer);
+
+  showToast.timer = setTimeout(() => {
+    toast.classList.remove("show");
+  }, 2600);
+}
+
+
+// ==================================================
+// CUSTOM POPUP
+// ==================================================
+
+function showActionPopup({
+  title = "Prep Master",
+  message = "",
+  icon = "✓",
+  buttons = []
+} = {}) {
+
+  const oldPopup =
+    document.getElementById("pmActionPopup");
+
+  if (oldPopup) {
+    oldPopup.remove();
+  }
+
+  const popup =
+    document.createElement("div");
+
+  popup.id =
+    "pmActionPopup";
+
+  popup.innerHTML = `
+    <div class="pm-popup-backdrop">
+      <div class="pm-popup-card">
+
+        <div class="pm-popup-icon">
+          ${icon}
+        </div>
+
+        <h2>
+          ${escapeHtml(title)}
+        </h2>
+
+        <p>
+          ${escapeHtml(message)}
+        </p>
+
+        <div class="pm-popup-actions">
+          ${
+            buttons.map(
+              button => `
+                <button
+                  type="button"
+                  class="pm-popup-btn ${escapeHtml(
+                    button.className || ""
+                  )}"
+                  data-popup-action="${escapeHtml(
+                    button.id || ""
+                  )}"
+                >
+                  ${escapeHtml(button.text || "OK")}
+                </button>
+              `
+            ).join("")
+          }
+        </div>
+
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(popup);
+
+  const style =
+    document.getElementById(
+      "pmPopupStyle"
+    );
+
+  if (!style) {
+
+    const css =
+      document.createElement("style");
+
+    css.id =
+      "pmPopupStyle";
+
+    css.textContent = `
+      #pmActionPopup {
+        position: fixed;
+        inset: 0;
+        z-index: 999999;
+      }
+
+      .pm-popup-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(0,0,0,.72);
+        backdrop-filter: blur(7px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 22px;
+      }
+
+      .pm-popup-card {
+        width: min(420px, 100%);
+        background: #050505;
+        border: 1px solid rgba(255,255,255,.12);
+        border-radius: 24px;
+        padding: 28px 22px 22px;
+        text-align: center;
+        box-shadow: 0 25px 80px rgba(0,0,0,.65);
+        animation: pmPopupIn .22s ease;
+      }
+
+      .pm-popup-icon {
+        width: 64px;
+        height: 64px;
+        margin: 0 auto 16px;
+        border-radius: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #111;
+        border: 1px solid rgba(255,255,255,.12);
+        color: #fff;
+        font-size: 30px;
+        font-weight: 800;
+      }
+
+      .pm-popup-card h2 {
+        margin: 0 0 10px;
+        color: #fff;
+        font-size: 23px;
+        font-weight: 800;
+      }
+
+      .pm-popup-card p {
+        margin: 0;
+        color: #aaa;
+        line-height: 1.6;
+        font-size: 15px;
+      }
+
+      .pm-popup-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        margin-top: 22px;
+      }
+
+      .pm-popup-btn {
+        min-width: 105px;
+        border: 0;
+        border-radius: 12px;
+        padding: 12px 18px;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        background: #222;
+        color: #fff;
+      }
+
+      .pm-popup-btn.primary {
+        background: #2878ff;
+      }
+
+      .pm-popup-btn.danger {
+        background: #242424;
+        color: #ff7777;
+      }
+
+      @keyframes pmPopupIn {
+        from {
+          opacity: 0;
+          transform: translateY(12px) scale(.97);
+        }
+
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+    `;
+
+    document.head.appendChild(css);
+  }
+
+
+  buttons.forEach(button => {
+
+    const element =
+      popup.querySelector(
+        `[data-popup-action="${CSS.escape(
+          button.id || ""
+        )}"]`
+      );
+
+    if (!element) return;
+
+    element.onclick = () => {
+
+      popup.remove();
+
+      if (typeof button.onClick === "function") {
+        button.onClick();
+      }
+    };
+  });
+
+
+  const backdrop =
+    popup.querySelector(
+      ".pm-popup-backdrop"
+    );
+
+  if (backdrop) {
+
+    backdrop.addEventListener(
+      "click",
+      event => {
+
+        if (
+          event.target === backdrop &&
+          buttons.length === 1
+        ) {
+          popup.remove();
+        }
+
+      }
+    );
+  }
+}
+
+
+// ==================================================
+// API
+// ==================================================
+
+async function api(url) {
+
+  const response =
+    await fetch(
+      url,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json"
+        }
+      }
+    );
+
+  const data =
+    await response
+      .json()
+      .catch(() => null);
+
+  if (!response.ok) {
+
+    throw new Error(
+      data?.error ||
+      data?.message ||
+      `Request failed (${response.status})`
+    );
+  }
+
+  return data;
+}
+
+
+// ==================================================
+// MY BATCHES
+// ==================================================
+
+function getSaved() {
+
+  try {
+
+    return JSON.parse(
+      localStorage.getItem(
+        "prepMasterMyBatches"
+      ) || "[]"
+    );
+
+  } catch {
+
+    return [];
+  }
+}
+
+
+function saveSaved(items) {
+
+  localStorage.setItem(
+    "prepMasterMyBatches",
+    JSON.stringify(items)
+  );
+}
+
+
+function isMyBatch(id) {
+
+  return getSaved().some(
+    batch =>
+      String(batch.id) ===
+      String(id)
+  );
+}
+
+
+// ==================================================
+// ENROLL
+// ==================================================
+
+function addMyBatch(batch) {
+
+  if (
+    !batch ||
+    batch.id == null
+  ) {
+
+    showToast(
+      "Invalid batch"
+    );
+
+    return;
+  }
+
+
+  if (isMyBatch(batch.id)) {
+
+    showToast(
+      "This batch is already in My Batches"
+    );
+
+    return;
+  }
+
+
+  const saved =
+    getSaved();
+
+  saved.unshift(batch);
+
+  saveSaved(saved);
+
+  renderBatches();
+  renderMyBatches();
+
+
+  showActionPopup({
+
+    title: "Congratulations 🎉",
+
+    message:
+      "You have successfully enrolled in this batch. Your batch has been added to My Batches.",
+
+    icon: "✓",
+
+    buttons: [
+      {
+        id: "done",
+        text: "Done",
+        className: "primary"
+      }
+    ]
+  });
+}
+
+
+// ==================================================
+// UNENROLL
+// ==================================================
+
+function removeMyBatch(id) {
+
+  const saved =
+    getSaved();
+
+  const batch =
+    saved.find(
+      item =>
+        String(item.id) ===
+        String(id)
+    );
+
+  if (!batch) {
+    return;
+  }
+
+
+  showActionPopup({
+
+    title: "Unenroll from batch?",
+
+    message:
+      `Are you sure you want to remove "${batch.title || "this batch"}" from My Batches?`,
+
+    icon: "!",
+
+    buttons: [
+
+      {
+        id: "cancel",
+        text: "Cancel"
+      },
+
+      {
+        id: "remove",
+        text: "Unenroll",
+        className: "danger",
+
+        onClick: () => {
+
+          const updated =
+            getSaved().filter(
+              item =>
+                String(item.id) !==
+                String(id)
+            );
+
+          saveSaved(updated);
+
+          renderBatches();
+          renderMyBatches();
+
+
+          showActionPopup({
+
+            title: "Batch Removed",
+
+            message:
+              "The batch has been successfully removed from My Batches.",
+
+            icon: "✓",
+
+            buttons: [
+              {
+                id: "done",
+                text: "Done",
+                className: "primary"
+              }
+            ]
+          });
+
+        }
+      }
+
+    ]
+  });
+}
+
+
+// ==================================================
+// BATCH CARD
+// ==================================================
+
+function batchCard(
+  batch,
+  saved = false
+) {
+
+  const title =
+    escapeHtml(
+      batch.title ||
+      `Batch ${batch.id}`
+    );
+
+  const id =
+    escapeHtml(
+      batch.id
+    );
+
+
+  const thumb =
+    batch.thumbnail
+      ? `
+        <img
+          class="batch-img"
+          src="${escapeHtml(batch.thumbnail)}"
+          alt=""
+          loading="lazy"
+          onerror="
+            this.style.display='none';
+            if(this.nextElementSibling){
+              this.nextElementSibling.style.display='flex';
+            }
+          "
+        >
+
+        <div
+          class="batch-placeholder"
+          style="display:none"
+        >
+          PREP MASTER
+        </div>
+      `
+      : `
+        <div class="batch-placeholder">
+          PREP MASTER
+        </div>
+      `;
+
+
+  return `
+    <article
+      class="batch-card"
+      data-batch-id="${id}"
+    >
+
+      ${thumb}
+
+      <div class="batch-body">
+
+        <h3>
+          ${title}
+        </h3>
+
+        <p>
+          Course ID:
+          ${id}
+        </p>
+
+        <div class="card-actions">
+
+          <button
+            type="button"
+            class="primary-mini open-batch"
+            data-id="${id}"
+          >
+            Open Batch
+          </button>
+
+
+          ${
+            saved
+              ? `
+                <button
+                  type="button"
+                  class="small-btn danger unenroll-btn remove-batch"
+                  data-id="${id}"
+                >
+                  Unenroll
+                </button>
+              `
+              : `
+                ${
+                  isMyBatch(batch.id)
+                    ? `
+                      <button
+                        type="button"
+                        class="small-btn"
+                        disabled
+                      >
+                        ✓ Enrolled
+                      </button>
+                    `
+                    : `
+                      <button
+                        type="button"
+                        class="small-btn add-batch"
+                        data-id="${id}"
+                      >
+                        + My Batches
+                      </button>
+                    `
+                }
+              `
+          }
+
+        </div>
+
+      </div>
+
+    </article>
+  `;
+}
+
+
+// ==================================================
+// CREATE HOME BATCH SECTION
+// ==================================================
+//
+// Agar index.html me batchGrid sirf
+// Batches page ke andar hai to ye function
+// us grid ko Home page par bhi show karega.
+//
+
+function setupHomeBatches() {
+
+  const home =
+    document.querySelector(
+      '.page-view[data-page="home"]'
+    );
+
+  const existingHomeGrid =
+    $("homeBatchGrid");
+
+
+  if (!home) {
+    return;
+  }
+
+
+  if (existingHomeGrid) {
+    return;
+  }
+
+
+  const section =
+    document.createElement("section");
+
+  section.id =
+    "homeBatchesSection";
+
+  section.className =
+    "home-batches-section";
+
+
+  section.innerHTML = `
+    <div class="home-batches-heading">
+
+      <div>
+        <span class="home-batches-label">
+          PREP MASTER
+        </span>
+
+        <h2>
+          Explore Batches
+        </h2>
+
+        <p>
+          Choose your batch and start learning.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        id="homeMyBatchesBtn"
+        class="small-btn"
+      >
+        My Batches
+      </button>
+
+    </div>
+
+    <label class="batch-search-wrap home-batch-search" for="homeBatchSearch">
+      <span aria-hidden="true">🔎</span>
+      <input id="homeBatchSearch" class="batch-search" type="search" placeholder="Search batches by name or ID..." autocomplete="off">
+    </label>
+
+    <div
+      id="homeBatchStatus"
+      class="batch-status"
+    >
+      Loading batches…
+    </div>
+
+    <div
+      id="homeBatchGrid"
+      class="batch-grid"
+    ></div>
+  `;
+
 
   /*
-    External StudyBee page ke top
-    header ko crop karne ke liye.
+    Home ke existing content ke baad
+    batches section add kiya ja raha hai.
   */
-  --external-top-crop: 145px;
+
+  home.appendChild(section);
+
+
+  const myButton =
+    $("homeMyBatchesBtn");
+
+  if (myButton) {
+
+    myButton.onclick =
+      () => {
+
+        showPage(
+          "my-batches"
+        );
+      };
+  }
+
+
+  const style =
+    document.getElementById(
+      "pmHomeBatchStyle"
+    );
+
+
+  if (!style) {
+
+    const css =
+      document.createElement("style");
+
+    css.id =
+      "pmHomeBatchStyle";
+
+    css.textContent = `
+      .home-batches-section {
+        width: 100%;
+        margin-top: 42px;
+        padding: 0 0 40px;
+      }
+
+      .home-batches-heading {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 20px;
+      }
+
+      .home-batches-label {
+        display: block;
+        color: #3f82ff;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 2px;
+        margin-bottom: 7px;
+      }
+
+      .home-batches-heading h2 {
+        margin: 0;
+        color: #fff;
+        font-size: 28px;
+        font-weight: 800;
+      }
+
+      .home-batches-heading p {
+        margin: 7px 0 0;
+        color: #8e8e8e;
+        font-size: 14px;
+      }
+
+      .home-batches-section .batch-status {
+        margin: 10px 0 16px;
+        color: #888;
+        font-size: 13px;
+      }
+
+      .home-batches-section .batch-grid {
+        width: 100%;
+      }
+
+      @media (max-width: 600px) {
+
+        .home-batches-section {
+          margin-top: 32px;
+        }
+
+        .home-batches-heading {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .home-batches-heading h2 {
+          font-size: 24px;
+        }
+
+      }
+    `;
+
+    document.head.appendChild(css);
+  }
 }
 
 
-/* =========================
-   BASE
-   ========================= */
+// ==================================================
+// RENDER BATCHES
+// ==================================================
 
-html {
-  scroll-behavior: smooth;
-  background: var(--bg);
-}
+function renderBatches() {
 
-body {
-  font-family:
-    Inter,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  const term = String(state.searchTerm || "").trim().toLowerCase();
+  const visibleBatches = state.batches.filter(batch => {
+    const searchable = [batch.title, batch.name, batch.id, batch.category, batch.category_name]
+      .filter(value => value != null).join(" ").toLowerCase();
+    return !term || searchable.includes(term);
+  });
 
-  color: var(--text);
-  background: var(--bg);
-
-  line-height: 1.5;
-  min-height: 100vh;
-}
-
-body.viewer-open {
-  overflow: hidden;
-}
-
-button,
-a {
-  font: inherit;
-}
-
-button {
-  cursor: pointer;
-}
-
-a {
-  text-decoration: none;
-  color: inherit;
-}
+  /* Main Batches page grid */
+  const grid =
+    $("batchGrid");
 
 
-/* =========================
-   TOP HEADER
-   ========================= */
+  if (grid) {
 
-.topbar {
-  height: 76px;
+    grid.innerHTML =
+      visibleBatches
+        .map(
+          batch =>
+            batchCard(
+              batch,
+              false
+            )
+        )
+        .join("") || `<p class="batch-search-empty">No batches match your search.</p>`;
 
-  position: sticky;
-  top: 0;
+    bindBatchButtons(grid);
+  }
 
-  z-index: 100;
 
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  /*
+    Home page batch grid
+  */
 
-  padding: 0 6%;
+  const homeGrid =
+    $("homeBatchGrid");
 
-  background:
-    rgba(10, 10, 10, .96);
 
-  backdrop-filter: blur(14px);
+  if (homeGrid) {
 
-  border-bottom:
-    1px solid var(--border);
-}
+    homeGrid.innerHTML =
+      visibleBatches
+        .map(
+          batch =>
+            batchCard(
+              batch,
+              false
+            )
+        )
+        .join("") || `<p class="batch-search-empty">No batches match your search.</p>`;
 
-.brand {
-  display: flex;
-  align-items: center;
+    bindBatchButtons(
+      homeGrid
+    );
+  }
 
-  gap: 11px;
 
-  font-size: 21px;
-  font-weight: 850;
+  const homeStatus =
+    $("homeBatchStatus");
 
-  color: #fff;
-}
 
-.brand img {
-  width: 45px;
-  height: 45px;
+  if (homeStatus) {
 
-  object-fit: contain;
-
-  border-radius: 11px;
+    homeStatus.textContent = term
+      ? `${visibleBatches.length} matching batches`
+      : state.batches.length
+        ? `${state.batches.length} batches available`
+        : "No batches available";
+  }
 }
 
 
-/* =========================
-   MENU
-   ========================= */
+// ==================================================
+// RENDER MY BATCHES
+// ==================================================
 
-.menu-btn {
-  width: 45px;
-  height: 45px;
+function renderMyBatches() {
 
-  border:
-    1px solid var(--border);
+  const grid =
+    $("myBatchGrid");
 
-  background:
-    var(--surface2);
+  const empty =
+    $("myEmpty");
 
-  border-radius: 13px;
 
-  display: grid;
-  place-content: center;
+  if (!grid) {
+    return;
+  }
 
-  gap: 5px;
 
-  box-shadow:
-    0 7px 20px rgba(0, 0, 0, .25);
-}
+  const saved =
+    getSaved();
 
-.menu-btn i {
-  width: 18px;
-  height: 2px;
 
-  background: #fff;
+  grid.innerHTML =
+    saved
+      .map(
+        batch =>
+          batchCard(
+            batch,
+            true
+          )
+      )
+      .join("");
 
-  border-radius: 4px;
 
-  display: block;
-}
+  if (empty) {
 
-.menu-panel {
-  position: absolute;
+    empty.classList.toggle(
+      "hidden",
+      saved.length > 0
+    );
+  }
 
-  right: 6%;
-  top: 68px;
 
-  width: 190px;
-
-  padding: 8px;
-
-  background: #151515;
-
-  border:
-    1px solid var(--border);
-
-  border-radius: 15px;
-
-  box-shadow: var(--shadow);
-
-  display: none;
-}
-
-.menu-panel.open {
-  display: block;
-}
-
-.menu-panel a {
-  display: block;
-
-  padding: 12px 13px;
-
-  border-radius: 9px;
-
-  font-weight: 700;
-
-  color: #eee;
-}
-
-.menu-panel a:hover {
-  background:
-    var(--surface3);
-
-  color: #fff;
+  bindBatchButtons(
+    grid
+  );
 }
 
 
-/* =========================
-   PAGE VIEWS
-   ========================= */
+// ==================================================
+// BATCH BUTTONS
+// ==================================================
 
-.page-view {
-  display: none !important;
-}
+function bindBatchButtons(
+  container
+) {
 
-.page-view.active {
-  display: block !important;
-}
-
-.hero.active {
-  display: grid !important;
-}
+  if (!container) {
+    return;
+  }
 
 
-/* =========================
-   HOME
-   ========================= */
+  // -----------------------------------------------
+  // OPEN BATCH
+  // -----------------------------------------------
 
-.hero {
-  min-height:
-    calc(100vh - 76px);
+  container
+    .querySelectorAll(
+      ".open-batch"
+    )
+    .forEach(
+      button => {
 
-  padding:
-    70px 6%;
+        button.onclick =
+          () => {
 
-  grid-template-columns:
-    1.3fr .7fr;
+            const batch =
+              state.batches.find(
+                item =>
+                  String(item.id) ===
+                  String(button.dataset.id)
+              ) ||
 
-  align-items: center;
+              getSaved().find(
+                item =>
+                  String(item.id) ===
+                  String(button.dataset.id)
+              );
 
-  gap: 40px;
 
-  background:
-    radial-gradient(
-      circle at 80% 20%,
-      rgba(59, 130, 246, .13),
-      transparent 30%
-    ),
-    linear-gradient(
-      180deg,
-      #0b0b0b,
-      #080808
+            if (!batch) {
+
+              showToast(
+                "Batch not found"
+              );
+
+              return;
+            }
+
+
+            openBatch(
+              batch
+            );
+          };
+      }
+    );
+
+
+  // -----------------------------------------------
+  // ADD / ENROLL
+  // -----------------------------------------------
+
+  container
+    .querySelectorAll(
+      ".add-batch"
+    )
+    .forEach(
+      button => {
+
+        button.onclick =
+          () => {
+
+            const batch =
+              state.batches.find(
+                item =>
+                  String(item.id) ===
+                  String(button.dataset.id)
+              );
+
+
+            if (batch) {
+
+              addMyBatch(
+                batch
+              );
+            }
+          };
+      }
+    );
+
+
+  // -----------------------------------------------
+  // UNENROLL
+  // -----------------------------------------------
+
+  container
+    .querySelectorAll(
+      ".remove-batch"
+    )
+    .forEach(
+      button => {
+
+        button.onclick =
+          () => {
+
+            removeMyBatch(
+              button.dataset.id
+            );
+          };
+      }
     );
 }
 
-.eyebrow {
-  font-size: 11px;
 
-  letter-spacing: 1.6px;
+// ==================================================
+// LOAD BATCHES
+// ==================================================
 
-  font-weight: 850;
+async function loadBatches() {
 
-  color: var(--blue);
-}
+  const status =
+    $("batchStatus");
 
-.hero h1 {
-  font-size:
-    clamp(43px, 6vw, 70px);
 
-  line-height: 1.04;
+  if (status) {
 
-  letter-spacing: -3px;
+    status.textContent =
+      "Loading batches…";
 
-  margin-top: 10px;
-}
+    status.classList.remove(
+      "error"
+    );
+  }
 
-.hero h1 span {
-  color: var(--blue);
-}
 
-.hero-text {
-  max-width: 620px;
+  try {
 
-  color: var(--muted);
+    const data =
+      await api(
+        "/api/batches"
+      );
 
-  font-size: 16px;
 
-  margin:
-    20px 0 27px;
-}
+    let list = [];
 
-.hero-actions {
-  display: flex;
 
-  gap: 11px;
+    if (
+      Array.isArray(data)
+    ) {
 
-  flex-wrap: wrap;
-}
+      list = data;
 
-.primary-btn,
-.secondary-btn,
-.primary-mini,
-.small-btn {
-  display: inline-flex;
+    } else if (
+      Array.isArray(data?.new)
+    ) {
 
-  align-items: center;
-  justify-content: center;
+      list = data.new;
 
-  border-radius: 11px;
+    } else if (
+      Array.isArray(data?.batches)
+    ) {
 
-  font-weight: 750;
+      list = data.batches;
 
-  border: 0;
-}
+    } else if (
+      Array.isArray(data?.data)
+    ) {
 
-.primary-btn {
-  padding:
-    13px 18px;
+      list = data.data;
+    }
 
-  background:
-    var(--blue);
 
-  color: #fff;
+    state.batches =
+      list
+        .map(
+          item => ({
 
-  box-shadow:
-    0 9px 22px
-    rgba(37, 99, 235, .2);
-}
+            id:
+              item.id ??
+              item.course_id ??
+              item.courseId,
 
-.primary-btn:hover {
-  background:
-    var(--blue2);
-}
+            title:
+              item.title ||
+              item.name ||
+              item.course_name ||
+              item.courseName ||
+              `Batch ${
+                item.id ??
+                item.course_id ??
+                ""
+              }`,
 
-.secondary-btn {
-  padding:
-    12px 18px;
+            thumbnail:
+              item.thumbnail ||
+              item.image ||
+              item.image_url ||
+              item.thumbnail_url ||
+              "",
 
-  border:
-    1px solid var(--border);
+            courseUrl:
+              item.courseUrl ||
+              item.course_url ||
+              ""
 
-  background:
-    var(--surface2);
+          })
+        )
+        .filter(
+          item =>
+            item.id != null
+        );
 
-  color: #fff;
-}
 
+    renderBatches();
 
 
-/* =========================
-   SECTIONS
-   ========================= */
+    if (status) {
 
-.section {
-  padding:
-    50px 6%;
+      status.textContent =
+        `${state.batches.length} batches loaded`;
+    }
 
-  min-height:
-    calc(100vh - 76px);
-}
 
-.my-section {
-  background:
-    #0b0b0b;
+  } catch (error) {
 
-  border: 0;
-}
-
-.section-head {
-  display: flex;
-
-  align-items: end;
-
-  justify-content: space-between;
-
-  gap: 20px;
-
-  margin-bottom: 22px;
-}
-
-.section h2 {
-  font-size:
-    clamp(30px, 4vw, 42px);
-
-  letter-spacing:
-    -1.4px;
-
-  margin-top: 4px;
-}
-
-
-/* =========================
-   BUTTONS
-   ========================= */
-
-.small-btn {
-  padding:
-    9px 13px;
-
-  background:
-    var(--surface2);
-
-  border:
-    1px solid var(--border);
-
-  color: #eee;
-}
-
-.small-btn:hover {
-  border-color: #444;
-  color: #fff;
-}
-
-.small-btn.danger:hover {
-  border-color: #ef4444;
-  color: #f87171;
-}
-
-.primary-mini {
-  padding:
-    10px 12px;
-
-  background:
-    var(--blue);
-
-  color: #fff;
-
-  font-size: 13px;
-}
-
-.primary-mini:hover {
-  background:
-    var(--blue2);
-}
-
-
-/* =========================
-   STATUS
-   ========================= */
-
-.status {
-  color: var(--muted);
-
-  font-size: 14px;
-
-  margin:
-    10px 0 18px;
-}
-
-.status.error {
-  color: #f87171;
-}
-
-
-/* =========================
-   BATCH CARDS
-   ========================= */
-
-.batch-grid {
-  display: grid;
-
-  grid-template-columns:
-    repeat(3, 1fr);
-
-  gap: 18px;
-}
-
-.batch-card {
-  overflow: hidden;
-
-  background:
-    var(--surface);
-
-  border:
-    1px solid var(--border);
-
-  border-radius: 18px;
-
-  box-shadow:
-    0 9px 28px
-    rgba(0, 0, 0, .22);
-}
-
-.batch-img {
-  height: 165px;
-
-  width: 100%;
-
-  object-fit: cover;
-
-  background: #171717;
-
-  display: block;
-}
-
-.batch-placeholder {
-  height: 165px;
-
-  background:
-    linear-gradient(
-      135deg,
-      #171717,
-      #252525
+    console.error(
+      "Batches error:",
+      error
     );
 
-  display: flex;
 
-  align-items: center;
-  justify-content: center;
+    if (status) {
 
-  color: #8ab4f8;
+      status.textContent =
+        `Could not load batches: ${error.message}`;
 
-  font-weight: 900;
+      status.classList.add(
+        "error"
+      );
+    }
 
-  font-size: 25px;
-}
 
-.batch-body {
-  padding: 17px;
-}
+    const homeStatus =
+      $("homeBatchStatus");
 
-.batch-body h3 {
-  font-size: 18px;
 
-  line-height: 1.3;
+    if (homeStatus) {
 
-  color: #fff;
-}
-
-.batch-body p {
-  font-size: 13px;
-
-  color: var(--muted);
-
-  margin:
-    7px 0 14px;
-}
-
-.card-actions {
-  display: flex;
-
-  gap: 8px;
-}
-
-.card-actions .primary-mini {
-  flex: 1;
-}
-
-.unenroll-btn {
-  border-color:
-    #4a2424 !important;
-
-  color:
-    #fca5a5 !important;
-}
-
-.unenroll-btn:hover {
-  background:
-    #241212 !important;
-
-  border-color:
-    #ef4444 !important;
+      homeStatus.textContent =
+        "Unable to load batches right now.";
+    }
+  }
 }
 
 
-/* =========================
-   EMPTY
-   ========================= */
+// ==================================================
+// OPEN BATCH
+// ==================================================
+//
+// Dynamic KGS URL:
+// https://sahukgs.com/batch/{batchId}
+// Example: https://sahukgs.com/batch/1253
+//
+// ==================================================
 
-.empty {
-  color: var(--muted);
+function openBatch(batch) {
+  if (!batch || batch.id == null) {
+    showToast("Invalid batch ID");
+    return;
+  }
 
-  padding:
-    25px 0;
-}
+  state.currentBatch = batch;
+  state.activeCourseUrl = `https://sahukgs.com/batch/${encodeURIComponent(batch.id)}`;
+  document.title = `${batch.title || "Batch"} - Prep Master`;
 
-.hidden {
-  display: none !important;
-}
-
-
-
-/* ==================================================
-   PREMIUM ACCESS GATE
-   ================================================== */
-
-.premium-gate {
-  position: fixed;
-  inset: 0;
-  z-index: 1100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  overflow-y: auto;
-  background: #f4f7fc;
-}
-
-.premium-card {
-  width: min(100%, 620px);
-  padding: 48px 40px 36px;
-  border: 1px solid #e3e9f3;
-  border-radius: 24px;
-  background: #ffffff;
-  box-shadow: 0 20px 60px rgba(25,55,100,.12);
-  text-align: center;
-}
-
-.premium-icon {
-  width: 108px;
-  height: 108px;
-  margin: 0 auto 28px;
-  display: grid;
-  place-items: center;
-  border: 1px solid #dce7fb;
-  border-radius: 26px;
-  background: #edf4ff;
-  font-size: 46px;
-}
-
-.premium-eyebrow {
-  margin-bottom: 8px;
-  color: var(--blue);
-  font-size: 13px;
-  font-weight: 900;
-  letter-spacing: 4px;
-}
-
-.premium-card h2 {
-  color: #172554;
-  font-size: clamp(38px, 6vw, 56px);
-  line-height: 1.05;
-  letter-spacing: -2px;
-}
-
-.premium-subtitle {
-  margin: 22px auto 38px;
-  max-width: 510px;
-  color: #64748b;
-  font-size: 16px;
-}
-
-.premium-card label {
-  display: block;
-  margin: 0 0 10px;
-  color: #475569;
-  font-size: 13px;
-  font-weight: 850;
-  letter-spacing: 2px;
-  text-align: left;
-}
-
-.premium-card input {
-  width: 100%;
-  height: 78px;
-  padding: 0 24px;
-  border: 1px solid #d5deeb;
-  border-radius: 14px;
-  outline: none;
-  background: #ffffff;
-  color: #172033;
-  text-align: center;
-  font-size: 19px;
-}
-
-.premium-card input:focus {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59,130,246,.12);
-}
-
-.premium-btn {
-  width: 100%;
-  min-height: 70px;
-  margin-top: 18px;
-  border-radius: 17px;
-  font-weight: 900;
-  border: 1px solid #d5deeb;
-  transition: .18s ease;
-}
-
-.premium-btn.primary {
-  background: var(--blue);
-  color: #fff;
-  border-color: var(--blue);
-}
-
-.premium-btn.primary:hover { background: var(--blue2); }
-
-.premium-btn.light {
-  background: #fff;
-  color: #111;
-  border-color: #fff;
-}
-
-.premium-btn.outline {
-  background: #ffffff;
-  color: #245eea;
-  border-color: #b9cdf5;
-}
-
-.premium-btn.help {
-  min-height: 54px;
-  margin-top: 10px;
-  background: #eef4ff;
-  color: #214da8;
-  border-color: #d7e4ff;
-  font-size: 14px;
-}
-
-.premium-help-buttons {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-top: 10px;
-}
-
-.premium-btn.outline:hover,
-.premium-btn.light:hover { transform: translateY(-1px); }
-
-.premium-or {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  margin: 30px 0 0;
-  color: #666;
-  font-weight: 800;
-}
-
-.premium-or::before,
-.premium-or::after {
-  content: "";
-  height: 1px;
-  flex: 1;
-  background: #292929;
-}
-
-.premium-back {
-  margin-top: 28px;
-  border: 0;
-  background: transparent;
-  color: #777;
-  font-weight: 800;
-}
-
-.premium-back { color: #64748b; }
-.premium-back:hover { color: #1d4ed8; }
-
-@media (max-width: 600px) {
-  .premium-gate { padding: 16px; }
-  .premium-card { padding: 34px 20px 28px; border-radius: 24px; }
-  .premium-icon { width: 108px; height: 108px; }
-  .premium-subtitle { font-size: 16px; margin-bottom: 30px; }
-  .premium-card input { height: 78px; }
-  .premium-btn { min-height: 60px; }
-  .premium-help-buttons { grid-template-columns: 1fr; }
-}
-
-/* ==================================================
-   PREP MASTER COURSE VIEWER
-   ================================================== */
-
-.course-viewer {
-  position: fixed;
-
-  inset: 0;
-
-  z-index: 1000;
-
-  background: #000;
-
-  overflow: hidden;
+  checkSavedPremium().then(valid => {
+    if (valid) {
+      openPremiumCourse();
+    } else {
+      showPremiumGate();
+    }
+  });
 }
 
 
-/* =========================
-   COURSE HEADER
-   ========================= */
+// ==================================================
+// CLOSE COURSE VIEWER
+// ==================================================
 
-.course-viewer-header {
-  position: absolute;
+function closeCourseViewer() {
 
-  top: 0;
-  left: 0;
-  right: 0;
+  const viewer =
+    $("courseViewer");
 
-  height:
-    var(--viewer-header-height);
+  const frame =
+    $("courseFrame");
 
-  z-index: 20;
+  const loading =
+    $("courseLoading");
 
-  display: flex;
+  const errorBox =
+    $("courseError");
 
-  align-items: center;
 
-  background: #243b91;
-  border-bottom: 1px solid #1c2f78;
-  box-shadow: 0 8px 24px rgba(20,40,100,.22);
+  if (frame) {
+
+    frame.src =
+      "about:blank";
+  }
+
+
+  if (viewer) {
+
+    viewer.classList.add(
+      "hidden"
+    );
+  }
+
+
+  if (loading) {
+
+    loading.classList.remove(
+      "hidden"
+    );
+  }
+
+
+  if (errorBox) {
+
+    errorBox.classList.add(
+      "hidden"
+    );
+  }
+
+
+  document.body.classList.remove(
+    "viewer-open"
+  );
+
+
+  state.activeCourseUrl =
+    "";
+
+
+  document.title =
+    "Prep Master";
 }
 
 
-/* BACK BUTTON */
+// ==================================================
+// COURSE IFRAME LOAD
+// ==================================================
 
-.course-back-btn {
-  width: 48px;
-  height: 48px;
-
-  margin-left: 16px;
-
-  border:
-    1px solid #2c2c2c;
-
-  border-radius: 13px;
-
-  background:
-    #171717;
-
-  color: #fff;
-
-  font-size: 27px;
-
-  display: flex;
-
-  align-items: center;
-  justify-content: center;
-
-  line-height: 1;
-
-  transition:
-    .18s ease;
-}
-
-.course-back-btn:hover {
-  background:
-    #222;
-
-  border-color:
-    #414141;
-}
+const courseFrame =
+  $("courseFrame");
 
 
-/* COURSE BRAND */
+if (courseFrame) {
 
-.course-brand {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 10px;
-  color: #fff;
-  text-align: center;
-}
+  courseFrame.addEventListener(
+    "load",
+    () => {
 
-.course-brand-text {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  min-width: 0;
-}
+      const loading =
+        $("courseLoading");
 
-.course-brand-text strong {
-  max-width: min(62vw, 720px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: clamp(15px, 3.6vw, 23px);
-  line-height: 1.2;
-}
 
-.course-brand-text span {
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 2.5px;
-  opacity: .82;
+      if (loading) {
+
+        loading.classList.add(
+          "hidden"
+        );
+      }
+
+    }
+  );
+
+
+  courseFrame.addEventListener(
+    "error",
+    () => {
+
+      const loading =
+        $("courseLoading");
+
+      const errorBox =
+        $("courseError");
+
+
+      if (loading) {
+
+        loading.classList.add(
+          "hidden"
+        );
+      }
+
+
+      if (errorBox) {
+
+        errorBox.classList.remove(
+          "hidden"
+        );
+      }
+
+    }
+  );
 }
 
 
-/* CLOSE */
+// ==================================================
+// RETRY COURSE
+// ==================================================
 
-.course-close-btn {
-  width: 44px;
-  height: 44px;
+const retryCourse =
+  $("retryCourse");
 
-  margin-left: auto;
-  margin-right: 16px;
 
-  border: 0;
+if (retryCourse) {
 
-  background:
-    transparent;
+  retryCourse.onclick =
+    () => {
 
-  color: #fff;
+      if (
+        state.currentBatch
+      ) {
 
-  font-size: 36px;
+        openBatch(
+          state.currentBatch
+        );
+      }
 
-  line-height: 1;
-
-  display: flex;
-
-  align-items: center;
-  justify-content: center;
-}
-
-.course-close-btn:hover {
-  color: #bbb;
+    };
 }
 
 
-/* =========================
-   IFRAME CROP
-   ========================= */
+// ==================================================
+// COURSE BACK
+// ==================================================
+
+const courseBackBtn =
+  $("courseBackBtn");
+
+
+if (courseBackBtn) {
+
+  courseBackBtn.onclick =
+    () => {
+
+      closeCourseViewer();
+    };
+}
+
+
+// ==================================================
+// COURSE CLOSE
+// ==================================================
+
+const courseCloseBtn =
+  $("courseCloseBtn");
+
+
+if (courseCloseBtn) {
+
+  courseCloseBtn.onclick =
+    () => {
+
+      closeCourseViewer();
+    };
+}
+
+
+// ==================================================
+// PREMIUM ACCESS BUTTONS
+// ==================================================
+
+const verify24KeyBtn = $("verify24KeyBtn");
+const verifyPremiumKeyBtn = $("verifyPremiumKeyBtn");
+const get24KeyBtn = $("get24KeyBtn");
+const buyPremiumBtn = $("buyPremiumBtn");
+const howGenerateKeyBtn = $("howGenerateKeyBtn");
+const howBuyPremiumKeyBtn = $("howBuyPremiumKeyBtn");
+const premiumBackBtn = $("premiumBackBtn");
+const access24Key = $("access24Key");
+const premiumKey = $("premiumKey");
+
+if (verify24KeyBtn) {
+  verify24KeyBtn.onclick = async () => {
+    const ok = await verifyPremiumKey(access24Key?.value);
+    if (ok) openPremiumCourse();
+  };
+}
+
+if (verifyPremiumKeyBtn) {
+  verifyPremiumKeyBtn.onclick = async () => {
+    const ok = await verifyPremiumKey(premiumKey?.value);
+    if (ok) openPremiumCourse();
+  };
+}
+
+if (get24KeyBtn) {
+  get24KeyBtn.onclick = () => {
+    window.open(publicConfig.twentyFourHourUrl || DEFAULT_24H_URL, "_blank", "noopener,noreferrer");
+  };
+}
+
+if (buyPremiumBtn) {
+  buyPremiumBtn.onclick = () => {
+    const batchName = state.currentBatch?.title || "KGS batch";
+    const message = `Hello, mujhe ${batchName} ki Premium Key leni hai. Please premium key ka price aur payment details bhej dijiye.`;
+    const username = String(publicConfig.purchaseTelegram || "Subhanali011").replace(/^@/, "");
+    const url = `https://t.me/${username}?text=${encodeURIComponent(message)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+}
+
+if (howGenerateKeyBtn) {
+  howGenerateKeyBtn.onclick = () => {
+    const url = publicConfig.howToGenerate24hVideoUrl;
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+    else showToast("Admin has not added the 24H key tutorial link yet.");
+  };
+}
+
+if (howBuyPremiumKeyBtn) {
+  howBuyPremiumKeyBtn.onclick = () => {
+    const url = publicConfig.howToBuyPremiumVideoUrl;
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+    else showToast("Admin has not added the Premium key tutorial link yet.");
+  };
+}
+
+if (premiumBackBtn) {
+  premiumBackBtn.onclick = () => {
+    hidePremiumGate();
+    state.currentBatch = null;
+    state.activeCourseUrl = "";
+    document.title = "Prep Master";
+  };
+}
+
+// ==================================================
+// PAGE VIEWS
+// ==================================================
+
+function showPage(page) {
+
+  const allowed = [
+    "home",
+    "batches",
+    "my-batches"
+  ];
+
+
+  const target =
+    allowed.includes(page)
+      ? page
+      : "home";
+
+
+  document
+    .querySelectorAll(
+      ".page-view"
+    )
+    .forEach(
+      view => {
+
+        view.classList.toggle(
+          "active",
+          view.dataset.page ===
+          target
+        );
+      }
+    );
+
+
+  if (
+    target ===
+    "my-batches"
+  ) {
+
+    renderMyBatches();
+  }
+
+
+  /*
+    Home par batches hamesha
+    freshly render honge.
+  */
+
+  if (
+    target ===
+    "home"
+  ) {
+
+    renderBatches();
+  }
+
+
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  });
+
+
+  const menu =
+    $("menuPanel");
+
+
+  if (menu) {
+
+    menu.classList.remove(
+      "open"
+    );
+
+
+    $("menuBtn")
+      ?.setAttribute(
+        "aria-expanded",
+        "false"
+      );
+
+
+    menu.setAttribute(
+      "aria-hidden",
+      "true"
+    );
+  }
+
+
+  if (
+    window.location.hash !==
+    `#${target}`
+  ) {
+
+    history.replaceState(
+      null,
+      "",
+      `#${target}`
+    );
+  }
+}
+
+
+// ==================================================
+// PAGE NAVIGATION
+// ==================================================
+
+document
+  .querySelectorAll(
+    "[data-view]"
+  )
+  .forEach(
+    button => {
+
+      button.addEventListener(
+        "click",
+        event => {
+
+          event.preventDefault();
+
+          showPage(
+            button.dataset.view
+          );
+        }
+      );
+    }
+  );
+
+
+window.addEventListener(
+  "hashchange",
+  () => {
+
+    const hash =
+      window.location.hash
+        .replace(
+          "#",
+          ""
+        );
+
+
+    if (
+      [
+        "home",
+        "batches",
+        "my-batches"
+      ].includes(hash)
+    ) {
+
+      showPage(
+        hash
+      );
+    }
+  }
+);
+
+
+// ==================================================
+// BATCH SEARCH (home + batches page)
+// ==================================================
+function syncBatchSearch(value) {
+  state.searchTerm = String(value || "");
+  [$("batchSearch"), $("homeBatchSearch")].forEach(input => {
+    if (input && input.value !== state.searchTerm) input.value = state.searchTerm;
+  });
+  renderBatches();
+}
+["batchSearch", "homeBatchSearch"].forEach(id => {
+  const input = $(id);
+  if (input) input.addEventListener("input", () => syncBatchSearch(input.value));
+});
+
+// ==================================================
+// MENU
+// ==================================================
+
+const menuBtn =
+  $("menuBtn");
+
+const menuPanel =
+  $("menuPanel");
+
+
+if (
+  menuBtn &&
+  menuPanel
+) {
+
+  menuBtn.onclick =
+    event => {
+
+      event.stopPropagation();
+
+
+      const open =
+        menuPanel.classList.toggle(
+          "open"
+        );
+
+
+      menuBtn.setAttribute(
+        "aria-expanded",
+        String(open)
+      );
+
+
+      menuPanel.setAttribute(
+        "aria-hidden",
+        String(!open)
+      );
+    };
+
+
+  document.addEventListener(
+    "click",
+    event => {
+
+      if (
+        !menuPanel.contains(
+          event.target
+        ) &&
+        !menuBtn.contains(
+          event.target
+        )
+      ) {
+
+        menuPanel.classList.remove(
+          "open"
+        );
+
+
+        menuBtn.setAttribute(
+          "aria-expanded",
+          "false"
+        );
+
+
+        menuPanel.setAttribute(
+          "aria-hidden",
+          "true"
+        );
+      }
+
+    }
+  );
+}
+
+
+// ==================================================
+// CLEAR MY BATCHES
+// ==================================================
+
+const clearSaved =
+  $("clearSaved");
+
+
+if (clearSaved) {
+
+  clearSaved.onclick =
+    () => {
+
+      const saved =
+        getSaved();
+
+
+      if (
+        saved.length === 0
+      ) {
+
+        showToast(
+          "My Batches is already empty"
+        );
+
+        return;
+      }
+
+
+      showActionPopup({
+
+        title: "Clear My Batches?",
+
+        message:
+          "This will remove all enrolled batches from My Batches.",
+
+        icon: "!",
+
+        buttons: [
+
+          {
+            id: "cancel",
+            text: "Cancel"
+          },
+
+          {
+            id: "clear",
+            text: "Clear All",
+            className: "danger",
+
+            onClick: () => {
+
+              saveSaved([]);
+
+              renderBatches();
+              renderMyBatches();
+
+
+              showActionPopup({
+
+                title: "My Batches Cleared",
+
+                message:
+                  "All saved batches have been removed.",
+
+                icon: "✓",
+
+                buttons: [
+                  {
+                    id: "done",
+                    text: "Done",
+                    className: "primary"
+                  }
+                ]
+              });
+
+            }
+          }
+
+        ]
+      });
+
+    };
+}
+
+
+// ==================================================
+// REFRESH BATCHES
+// ==================================================
+
+const refreshBatches =
+  $("refreshBatches");
+
+
+if (refreshBatches) {
+
+  refreshBatches.onclick =
+    loadBatches;
+}
+
+
+// ==================================================
+// VIDEO / MATERIAL SUPPORT
+// ==================================================
+
+function openModal(id) {
+
+  const modal =
+    $(id);
+
+
+  if (!modal) {
+    return;
+  }
+
+
+  modal.classList.remove(
+    "hidden"
+  );
+
+
+  document.body.style.overflow =
+    "hidden";
+}
+
+
+function closeModal(id) {
+
+  const modal =
+    $(id);
+
+
+  if (!modal) {
+    return;
+  }
+
+
+  modal.classList.add(
+    "hidden"
+  );
+
+
+  const anotherOpen =
+    [
+      ...document.querySelectorAll(
+        ".modal"
+      )
+    ].some(
+      item =>
+        !item.classList.contains(
+          "hidden"
+        )
+    );
+
+
+  if (!anotherOpen) {
+
+    document.body.style.overflow =
+      "";
+  }
+}
+
+
+// ==================================================
+// FIND VIDEO URL
+// ==================================================
+
+function findVideoUrl(data) {
+
+  const directFields = [
+    "decoded_video_link",
+    "video_url",
+    "hls_url",
+    "stream_url",
+    "playback_url",
+    "play_url",
+    "url"
+  ];
+
+
+  for (
+    const key of directFields
+  ) {
+
+    if (
+      typeof data?.[key] ===
+      "string" &&
+      data[key].trim()
+    ) {
+
+      return data[key].trim();
+    }
+  }
+
+
+  const nestedObjects = [
+    data?.data,
+    data?.result,
+    data?.video,
+    data?.class,
+    data?.response
+  ];
+
+
+  for (
+    const object of nestedObjects
+  ) {
+
+    if (
+      !object ||
+      typeof object !==
+      "object"
+    ) {
+
+      continue;
+    }
+
+
+    for (
+      const key of directFields
+    ) {
+
+      if (
+        typeof object[key] ===
+        "string" &&
+        object[key].trim()
+      ) {
+
+        return object[key].trim();
+      }
+    }
+  }
+
+
+  return null;
+}
+
+
+// ==================================================
+// OPEN VIDEO
+// ==================================================
+
+async function openVideo(
+  videoId
+) {
+
+  const title =
+    $("videoTitle");
+
+  const info =
+    $("videoInfo");
+
+  const video =
+    $("videoPlayer");
+
+
+  if (!video) {
+
+    showToast(
+      "Video player not found"
+    );
+
+    return;
+  }
+
+
+  if (title) {
+
+    title.textContent =
+      "Loading video…";
+  }
+
+
+  if (info) {
+
+    info.textContent =
+      "Connecting to video server…";
+  }
+
+
+  openModal(
+    "videoModal"
+  );
+
+
+  try {
+
+    if (state.hls) {
+
+      state.hls.destroy();
+
+      state.hls =
+        null;
+    }
+
+
+    video.pause();
+
+    video.removeAttribute(
+      "src"
+    );
+
+    video.load();
+
+
+    if (
+      !state.currentBatch
+    ) {
+
+      throw new Error(
+        "No current batch selected."
+      );
+    }
+
+
+    const apiUrl =
+      `/api/video?course_id=${
+        encodeURIComponent(
+          state.currentBatch.id
+        )
+      }&video_id=${
+        encodeURIComponent(
+          videoId
+        )
+      }`;
+
+
+    const data =
+      await api(
+        apiUrl
+      );
+
+
+    const stream =
+      findVideoUrl(
+        data
+      );
+
+
+    if (title) {
+
+      title.textContent =
+        data?.title ||
+        data?.name ||
+        `Video ${videoId}`;
+    }
+
+
+    if (!stream) {
+
+      throw new Error(
+        "Video API did not return a playable video URL."
+      );
+    }
+
+
+    if (
+      window.Hls &&
+      Hls.isSupported()
+    ) {
+
+      if (info) {
+
+        info.textContent =
+          "Preparing video…";
+      }
+
+
+      state.hls =
+        new Hls({
+          enableWorker: true,
+          lowLatencyMode: false,
+          backBufferLength: 90
+        });
+
+
+      state.hls.on(
+        Hls.Events.MANIFEST_PARSED,
+        () => {
+
+          if (info) {
+
+            info.textContent =
+              "Video ready";
+          }
+
+
+          video
+            .play()
+            .catch(
+              () => {
+
+                if (info) {
+
+                  info.textContent =
+                    "Video ready. Press play to start.";
+                }
+              }
+            );
+        }
+      );
+
+
+      state.hls.on(
+        Hls.Events.ERROR,
+        (
+          event,
+          detail
+        ) => {
+
+          console.error(
+            "HLS ERROR:",
+            detail
+          );
+
+
+          if (!detail.fatal) {
+            return;
+          }
+
+
+          if (
+            detail.type ===
+            Hls.ErrorTypes.NETWORK_ERROR
+          ) {
+
+            if (info) {
+
+              info.textContent =
+                "Video stream network error.";
+            }
+
+            return;
+          }
+
+
+          if (
+            detail.type ===
+            Hls.ErrorTypes.MEDIA_ERROR
+          ) {
+
+            if (info) {
+
+              info.textContent =
+                "Video format/playback error.";
+            }
+
+
+            try {
+
+              state.hls
+                .recoverMediaError();
+
+            } catch {}
+
+            return;
+          }
+
+
+          if (info) {
+
+            info.textContent =
+              "The video could not be played.";
+          }
+        }
+      );
+
+
+      state.hls.loadSource(
+        stream
+      );
+
+
+      state.hls.attachMedia(
+        video
+      );
+
+
+      return;
+    }
+
+
+    if (
+      video.canPlayType(
+        "application/vnd.apple.mpegurl"
+      )
+    ) {
+
+      video.src =
+        stream;
+
+
+      video.addEventListener(
+        "loadedmetadata",
+        () => {
+
+          video
+            .play()
+            .catch(
+              () => {
+
+                if (info) {
+
+                  info.textContent =
+                    "Video ready. Press play to start.";
+                }
+              }
+            );
+        },
+        {
+          once: true
+        }
+      );
+
+
+      return;
+    }
+
+
+    throw new Error(
+      "This browser does not support HLS playback."
+    );
+
+
+  } catch (error) {
+
+    console.error(
+      "Video playback error:",
+      error
+    );
+
+
+    if (title) {
+
+      title.textContent =
+        "Video unavailable";
+    }
+
+
+    if (info) {
+
+      info.textContent =
+        error.message ||
+        "Unable to play this video.";
+    }
+  }
+}
+
+
+// ==================================================
+// OPEN MATERIAL
+// ==================================================
+
+function openMaterial(
+  title,
+  url
+) {
+
+  const materialTitle =
+    $("materialTitle");
+
+  const materialOpen =
+    $("materialOpen");
+
+  const materialFrame =
+    $("materialFrame");
+
+
+  if (materialTitle) {
+
+    materialTitle.textContent =
+      title ||
+      "Study material";
+  }
+
+
+  if (materialOpen) {
+
+    materialOpen.href =
+      url;
+  }
+
+
+  if (materialFrame) {
+
+    materialFrame.src =
+      url;
+  }
+
+
+  openModal(
+    "materialModal"
+  );
+}
+
+
+// ==================================================
+// CLOSE VIDEO
+// ==================================================
+
+function closeVideoPlayer() {
+
+  const video =
+    $("videoPlayer");
+
+
+  if (!video) {
+    return;
+  }
+
+
+  video.pause();
+
+  video.removeAttribute(
+    "src"
+  );
+
+  video.load();
+
+
+  if (state.hls) {
+
+    state.hls.destroy();
+
+    state.hls =
+      null;
+  }
+}
+
+
+// ==================================================
+// NORMAL MODAL CLOSE
+// ==================================================
+
+document
+  .querySelectorAll(
+    "[data-close]"
+  )
+  .forEach(
+    button => {
+
+      button.onclick =
+        () => {
+
+          const id =
+            button.dataset.close;
+
+
+          if (
+            id ===
+            "videoModal"
+          ) {
+
+            closeVideoPlayer();
+          }
+
+
+          if (
+            id ===
+            "materialModal"
+          ) {
+
+            const frame =
+              $("materialFrame");
+
+
+            if (frame) {
+
+              frame.src =
+                "about:blank";
+            }
+          }
+
+
+          closeModal(
+            id
+          );
+        };
+    }
+  );
+
+
+// ==================================================
+// MODAL BACKDROP
+// ==================================================
+
+document
+  .querySelectorAll(
+    ".modal"
+  )
+  .forEach(
+    modal => {
+
+      modal.addEventListener(
+        "click",
+        event => {
+
+          if (
+            event.target ===
+            modal
+          ) {
+
+            if (
+              modal.id ===
+              "videoModal"
+            ) {
+
+              closeVideoPlayer();
+            }
+
+
+            if (
+              modal.id ===
+              "materialModal"
+            ) {
+
+              const frame =
+                $("materialFrame");
+
+
+              if (frame) {
+
+                frame.src =
+                  "about:blank";
+              }
+            }
+
+
+            closeModal(
+              modal.id
+            );
+          }
+        }
+      );
+    }
+  );
+
+
+// ==================================================
+// BASIC DEVTOOLS DETERRENTS
+// ==================================================
+//
+// Ye complete security nahi hai.
+// Browser-side JS se DevTools ko 100%
+// permanently block nahi kiya ja sakta.
+//
+
+document.addEventListener(
+  "contextmenu",
+  event => {
+
+    event.preventDefault();
+  }
+);
+
+
+document.addEventListener(
+  "keydown",
+  event => {
+
+    const key =
+      String(
+        event.key || ""
+      ).toLowerCase();
+
+
+    const blocked =
+      key === "f12" ||
+
+      (
+        event.ctrlKey &&
+        event.shiftKey &&
+        [
+          "i",
+          "j",
+          "c"
+        ].includes(key)
+      ) ||
+
+      (
+        event.ctrlKey &&
+        key === "u"
+      );
+
+
+    if (blocked) {
+
+      event.preventDefault();
+
+      event.stopPropagation();
+
+      showToast(
+        "This action is disabled on Prep Master"
+      );
+    }
+  }
+);
+
+
+// ==================================================
+// INITIAL LOAD
+// ==================================================
 
 /*
-   Header = 76px
-
-   External page ka top ~145px crop.
-   Isliye iframe ko:
-
-   76px - 145px = -69px
-
-   se start karaya gaya hai.
-
-   External StudyBee header
-   iframe ke upar wale hidden
-   area me chala jayega.
+  Sabse pehle Home ke andar
+  Batches section create karo.
 */
 
-.course-iframe-crop {
-  position: absolute;
+setupHomeBatches();
 
-  top:
-    var(--viewer-header-height);
 
-  left: 0;
-  right: 0;
-  bottom: 0;
+/*
+  My Batches render karo.
+*/
 
-  overflow: hidden;
+renderMyBatches();
 
-  background: #080808;
-}
 
-.course-iframe-crop iframe {
-  position: absolute;
+/*
+  Hash ke according page.
+*/
 
-  top:
-    calc(
-      var(--viewer-header-height)
-      - var(--external-top-crop)
+const hash =
+  window.location.hash
+    .replace(
+      "#",
+      ""
     );
 
-  left: 0;
 
-  width: 100%;
+const initialPage =
+  [
+    "home",
+    "batches",
+    "my-batches"
+  ].includes(hash)
+    ? hash
+    : "home";
 
-  height:
-    calc(
-      100%
-      + var(--external-top-crop)
-      - var(--viewer-header-height)
-    );
 
-  border: 0;
+showPage(
+  initialPage
+);
 
-  display: block;
 
-  background: #080808;
-}
+/*
+  Public settings + batches load karo.
+*/
 
-
-/* =========================
-   COURSE LOADING
-   ========================= */
-
-.course-loading {
-  position: absolute;
-
-  inset: 0;
-
-  z-index: 10;
-
-  display: flex;
-
-  align-items: center;
-  justify-content: center;
-
-  pointer-events: none;
-
-  background:
-    rgba(0, 0, 0, .35);
-}
-
-.course-loading-box {
-  min-width: 190px;
-
-  padding:
-    20px;
-
-  border:
-    1px solid #292929;
-
-  border-radius: 16px;
-
-  background:
-    rgba(17, 17, 17, .96);
-
-  display: flex;
-
-  flex-direction: column;
-
-  align-items: center;
-
-  gap: 7px;
-
-  box-shadow:
-    0 20px 60px
-    rgba(0, 0, 0, .5);
-}
-
-.course-loading-box strong {
-  color: #fff;
-
-  font-size: 15px;
-}
-
-.course-loading-box span {
-  color: #888;
-
-  font-size: 12px;
-}
-
-
-/* SPINNER */
-
-.loading-spinner {
-  width: 30px;
-  height: 30px;
-
-  border:
-    3px solid #333;
-
-  border-top-color:
-    var(--blue);
-
-  border-radius: 50%;
-
-  animation:
-    prepSpin .8s linear infinite;
-}
-
-@keyframes prepSpin {
-  to {
-    transform:
-      rotate(360deg);
-  }
-}
-
-
-/* =========================
-   COURSE ERROR
-   ========================= */
-
-.course-error {
-  position: absolute;
-
-  inset: 0;
-
-  z-index: 30;
-
-  display: flex;
-
-  align-items: center;
-  justify-content: center;
-
-  background:
-    #080808;
-}
-
-.course-error-box {
-  width:
-    min(420px, 90%);
-
-  padding: 30px;
-
-  text-align: center;
-
-  background:
-    #111;
-
-  border:
-    1px solid #292929;
-
-  border-radius: 20px;
-}
-
-.course-error-icon {
-  width: 45px;
-  height: 45px;
-
-  margin:
-    0 auto 15px;
-
-  border-radius: 50%;
-
-  display: grid;
-  place-items: center;
-
-  background:
-    #291414;
-
-  color:
-    #f87171;
-
-  font-size: 23px;
-
-  font-weight: 900;
-}
-
-.course-error-box h3 {
-  font-size: 20px;
-
-  margin-bottom: 8px;
-}
-
-.course-error-box p {
-  color:
-    var(--muted);
-
-  font-size: 13px;
-
-  margin-bottom: 18px;
-}
-
-
-/* =========================
-   NORMAL MODALS
-   ========================= */
-
-.modal {
-  position: fixed;
-
-  inset: 0;
-
-  z-index: 200;
-
-  background:
-    rgba(0, 0, 0, .72);
-
-  padding: 25px;
-
-  overflow: auto;
-}
-
-.modal-box {
-  background: #111;
-
-  width:
-    min(760px, 100%);
-
-  margin:
-    3vh auto;
-
-  border-radius: 20px;
-
-  box-shadow:
-    0 25px 80px
-    rgba(0, 0, 0, .55);
-
-  padding: 22px;
-
-  border:
-    1px solid var(--border);
-}
-
-.modal-head {
-  display: flex;
-
-  justify-content: space-between;
-
-  align-items: flex-start;
-
-  gap: 15px;
-
-  margin-bottom: 15px;
-}
-
-.modal-head h2 {
-  font-size: 25px;
-
-  line-height: 1.2;
-
-  margin-top: 3px;
-}
-
-.close-btn {
-  width: 38px;
-  height: 38px;
-
-  border:
-    1px solid var(--border);
-
-  background:
-    var(--surface2);
-
-  color: #fff;
-
-  border-radius: 10px;
-
-  font-size: 25px;
-
-  line-height: 1;
-}
-
-
-/* =========================
-   VIDEO
-   ========================= */
-
-.video-wrap {
-  background: #000;
-
-  border-radius: 13px;
-
-  overflow: hidden;
-
-  aspect-ratio: 16 / 9;
-}
-
-.video-wrap video {
-  width: 100%;
-  height: 100%;
-
-  display: block;
-}
-
-.video-info {
-  padding-top: 12px;
-
-  color:
-    var(--muted);
-
-  font-size: 13px;
-}
-
-
-/* =========================
-   MATERIAL
-   ========================= */
-
-.material-actions {
-  margin-bottom: 12px;
-}
-
-.material-box {
-  width:
-    min(1000px, 100%);
-}
-
-#materialFrame {
-  width: 100%;
-
-  height: 70vh;
-
-  border:
-    1px solid var(--border);
-
-  border-radius: 12px;
-
-  background:
-    #0b0b0b;
-}
-
-
-/* =========================
-   TOAST
-   ========================= */
-
-.toast {
-  position: fixed;
-
-  left: 50%;
-
-  bottom: 22px;
-
-  z-index: 1500;
-
-  transform:
-    translate(-50%, 20px);
-
-  opacity: 0;
-
-  pointer-events: none;
-
-  background: #fff;
-
-  color: #111;
-
-  padding:
-    11px 15px;
-
-  border-radius: 10px;
-
-  font-size: 13px;
-
-  transition:
-    .2s;
-}
-
-.toast.show {
-  opacity: 1;
-
-  transform:
-    translate(-50%, 0);
-}
-
-
-/* =========================
-   FOOTER
-   ========================= */
-
-footer {
-  padding:
-    28px 6%;
-
-  border-top:
-    1px solid var(--border);
-
-  display: flex;
-
-  align-items: center;
-
-  justify-content: space-between;
-
-  color:
-    var(--muted);
-
-  font-size: 13px;
-
-  background:
-    #080808;
-}
-
-footer img {
-  width: 130px;
-  height: 42px;
-
-  object-fit: contain;
-}
-
-
-/* =========================
-   RESPONSIVE
-   ========================= */
-
-@media (max-width: 850px) {
-
-  .hero {
-    grid-template-columns: 1fr;
-  }
-
-  .batch-grid {
-    grid-template-columns:
-      1fr 1fr;
-  }
-
-}
-
-
-@media (max-width: 600px) {
-
-  :root {
-    --viewer-header-height: 72px;
-
-    /*
-      Mobile screenshot ke hisaab se
-      external header crop.
-    */
-    --external-top-crop: 145px;
-  }
-
-  .topbar {
-    padding:
-      0 20px;
-  }
-
-  .menu-panel {
-    right: 20px;
-  }
-
-  .hero {
-    padding:
-      50px 20px;
-
-    min-height:
-      calc(100vh - 76px);
-  }
-
-  .hero h1 {
-    font-size: 44px;
-
-    letter-spacing:
-      -2px;
-  }
-
-  .section {
-    padding:
-      40px 20px;
-  }
-
-  .batch-grid {
-    grid-template-columns:
-      1fr;
-  }
-
-  .modal {
-    padding: 10px;
-  }
-
-  .modal-box {
-    padding: 16px;
-  }
-
-  .section-head {
-    align-items:
-      flex-start;
-  }
-
-
-  /* COURSE VIEWER MOBILE */
-
-  .course-viewer-header {
-    height:
-      var(--viewer-header-height);
-  }
-
-  .course-back-btn {
-    width: 44px;
-    height: 44px;
-
-    margin-left: 10px;
-  }
-
-  .course-brand {
-    margin-left: 10px;
-
-    gap: 8px;
-
-    font-size: 19px;
-  }
-
-  .course-brand img {
-    width: 42px;
-    height: 42px;
-  }
-
-  .course-close-btn {
-    margin-right: 8px;
-  }
-
-  .course-iframe-crop {
-    top:
-      var(--viewer-header-height);
-  }
-
-
-  footer {
-    padding:
-      25px 20px;
-
-    flex-direction: column;
-
-    align-items:
-      flex-start;
-
-    gap: 10px;
-  }
-
-}
-
-/* =========================
-   PREP MASTER LIGHT HOME THEME
-   Keep the learning viewer independent.
-   ========================= */
-:root {
-  --bg: #ffffff;
-  --surface: #ffffff;
-  --surface2: #f7f8fa;
-  --surface3: #eef1f5;
-  --text: #171923;
-  --muted: #667085;
-  --border: #e5e7eb;
-  --shadow: 0 14px 38px rgba(16, 24, 40, .09);
-}
-
-html,
-body {
-  background: #ffffff;
-  color: #171923;
-}
-
-.topbar {
-  background: rgba(255, 255, 255, .96);
-  border-bottom: 1px solid #e5e7eb;
-  box-shadow: 0 2px 12px rgba(16, 24, 40, .04);
-}
-
-.brand { color: #171923; }
-
-.menu-btn {
-  background: #f7f8fa;
-  border-color: #e5e7eb;
-  box-shadow: none;
-}
-
-.menu-btn i { background: #252b36; }
-
-.menu-panel {
-  background: #ffffff;
-  border-color: #e5e7eb;
-  box-shadow: 0 14px 35px rgba(16, 24, 40, .12);
-}
-
-.menu-panel a { color: #252b36; }
-.menu-panel a:hover { background: #f1f5f9; color: #111827; }
-
-.hero {
-  background: #ffffff;
-  color: #171923;
-}
-
-.hero-text,
-.batch-body p,
-.status,
-.empty { color: #667085; }
-
-.secondary-btn,
-.small-btn {
-  background: #ffffff;
-  color: #252b36;
-  border-color: #d9dee7;
-}
-
-.small-btn:hover,
-.secondary-btn:hover {
-  background: #f7f8fa;
-  color: #111827;
-  border-color: #c7ced8;
-}
-
-.my-section { background: #ffffff; }
-
-.batch-card {
-  background: #ffffff;
-  border-color: #e5e7eb;
-  box-shadow: 0 8px 24px rgba(16, 24, 40, .07);
-}
-
-.batch-img { background: #f1f5f9; }
-.batch-placeholder {
-  background: linear-gradient(135deg, #eef4ff, #f8fafc);
-  color: #2563eb;
-}
-.batch-body h3 { color: #171923; }
-
-/* Preserve the immersive dark video/course viewer. */
-.course-viewer,
-.course-viewer * {
-  color-scheme: dark;
-}
+loadPublicConfig();
+loadBatches();
