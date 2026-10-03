@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3000;
 // =========================
 // PREP MASTER API SETTINGS
 // =========================
-const BATCHES_URL = "https://vidya.studybeepro.site/batches.json";
+const BATCHES_URL = "https://sahuvijay143.github.io/kgs_batch_list/New_Sunny.json";
 const FOLDER_URL = "https://vidya.studybeepro.site/get/folder_contentsv3";
 const VIDEO_URL = "https://vidya.studybeepro.site/playx/";
 
@@ -542,11 +542,15 @@ app.get("/api/batches", async (req, res) => {
           item.courseName,
         thumbnail:
           item.thumbnail ||
+          item.image_large ||
+          item.image_thumb ||
           item.image ||
           item.image_url ||
           item.thumbnail_url ||
           "",
-        courseUrl: item.courseUrl || ""
+        courseUrl: item.courseUrl || "",
+        start_at: item.start_at || "",
+        end_at: item.end_at || ""
       }))
       .filter((item) => item.id != null && !hidden.has(String(item.id)));
 
