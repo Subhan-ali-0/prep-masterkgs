@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prep Master | Admin Panel</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;background:#f6f7fb;color:#202431;font-family:Arial,sans-serif}
+    header{background:#fff;border-bottom:1px solid #e8eaf0;padding:16px 20px;display:flex;justify-content:space-between;align-items:center}
+    h1{font-size:20px;margin:0}
+    h2{font-size:18px;margin:0 0 14px}
+    main{max-width:1000px;margin:22px auto;padding:0 14px}
+    .card{background:#fff;border:1px solid #e7e9ef;border-radius:14px;padding:18px;margin-bottom:16px}
+    .hidden{display:none!important}
+    input,select{width:100%;padding:12px;border:1px solid #d9dce5;border-radius:9px;margin:6px 0 12px;font-size:15px;background:#fff}
+    button{border:0;border-radius:9px;padding:11px 14px;background:#2463eb;color:white;font-weight:600;cursor:pointer;margin:4px 4px 4px 0}
+    button.secondary{background:#eef2ff;color:#234db8}
+    button.danger{background:#dc3545}
+    button:disabled{opacity:.55;cursor:not-allowed}
+    .row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    .muted{color:#697386;font-size:13px;line-height:1.5}
+    .status{padding:10px;border-radius:8px;margin:10px 0;background:#eef2ff;white-space:pre-wrap;overflow-wrap:anywhere}
+    .keybox{font-size:18px;font-weight:bold;letter-spacing:1px;background:#f3f6ff;padding:14px;border-radius:9px;overflow-wrap:anywhere}
+    .item{border-top:1px solid #edf0f4;padding:12px 0}
+    .item:first-child{border-top:0}
+    .item strong{display:block;margin-bottom:5px}
+    label{font-size:13px;font-weight:600}
+    @media(max-width:600px){.row{grid-template-columns:1fr}header{padding:14px}}
+  </style>
+</head>
+<body>
+<header>
+  <h1>Prep Master — Admin</h1>
+  <button id="logoutBtn" class="secondary hidden">Logout</button>
+</header>
+
+<main>
+  <div id="loginCard" class="card">
+    <h2>Admin Login</h2>
+    <label>Username</label>
+    <input id="username" autocomplete="username" placeholder="Admin username">
+    <label>Password</label>
+    <input id="password" type="password" autocomplete="current-password" placeholder="Admin password">
+    <button id="loginBtn">Login</button>
+    <div id="loginStatus" class="status hidden"></div>
+  </div>
+
+  <section id="dashboard" class="hidden">
+    <div id="status" class="status">Admin panel ready.</div>
+
+    <div class="card">
+      <h2>Generate Premium Key</h2>
+      <label>Key type</label>
+      <select id="keyType">
+        <option value="24h">24 Hours</option>
+        <option value="lifetime">Lifetime</option>
+      </select>
+      <button id="generateBtn">Generate Key</button>
+      <div id="generatedBox" class="hidden">
+        <p class="muted">Copy this key now. It is shown only once.</p>
+        <div id="generatedKey" class="keybox"></div>
+        <button id="copyKeyBtn" class="secondary">Copy Key</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Key Records</h2>
+      <button id="refreshKeysBtn" class="secondary">Refresh Keys</button>
+      <div id="keysList" class="muted">Loading keys…</div>
+    </div>
+
+    <div class="card">
+      <h2>Batch Management</h2>
+      <p class="muted">Add a custom batch, hide an upstream batch, show it again, or remove a custom batch.</p>
+      <div class="row">
+        <div>
+          <label>Batch ID</label>
+          <input id="batchId" placeholder="Batch ID">
+        </div>
+        <div>
+          <label>Batch name</label>
+          <input id="batchTitle" placeholder="Batch name">
+        </div>
+      </div>
+      <label>Thumbnail URL (optional)</label>
+      <input id="batchThumbnail" placeholder="https://...">
+      <label>Course URL (optional)</label>
+      <input id="batchCourseUrl" placeholder="https://...">
+      <button id="addBatchBtn">Add Custom Batch</button>
+      <div class="row">
+        <button id="hideBatchBtn" class="secondary">Hide Batch ID</button>
+        <button id="showBatchBtn" class="secondary">Show Batch ID</button>
+      </div>
+      <button id="removeBatchBtn" class="danger">Remove Custom Batch</button>
+      <div id="batchStatus" class="status hidden"></div>
+    </div>
+
+    <div class="card">
+      <h2>Website Settings</h2>
+
+      <label>Purchase Telegram username (without @)</label>
+      <input id="purchaseTelegram" placeholder="Subhanali011">
+
+      <label>Telegram channel username (without @)</label>
+      <input id="telegramChannel" placeholder="prepmaster0">
+
+      <label>24-hour key link</label>
+      <input id="twentyFourHourUrl" type="url" placeholder="https://...">
+
+      <label>How to Generate 24H Key — Video URL</label>
+      <input id="howToGenerate24hVideoUrl" type="url" placeholder="https://youtube.com/...">
+
+      <label>How to Buy Premium Key — Video URL</label>
+      <input id="howToBuyPremiumVideoUrl" type="url" placeholder="https://youtube.com/...">
+
+      <p class="muted">
+        Paste a full YouTube, Vimeo, or other valid http/https video link.
+        Leave a tutorial field blank to hide that tutorial button on the claim page.
+      </p>
+
+      <button id="saveConfigBtn">Save Settings</button>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let adminToken = sessionStorage.getItem("pm_admin_token") || "";
+  let currentKey = "";
+
+  function message(id, text, isError=false) {
+    const el = $(id);
+    el.textContent = text;
+    el.classList.remove("hidden");
+    el.style.background = isError ? "#fff0f0" : "#eef2ff";
+    el.style.color = isError ? "#a11" : "#234";
+  }
+
+  async function api(url, options={}) {
+    const headers = {
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    };
+
+    if (adminToken) {
+      headers.Authorization = "Bearer " + adminToken;
+    }
+
+    const response = await fetch(url, {...options, headers});
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok || data.success === false) {
+      if (response.status === 401) {
+        adminToken = "";
+        sessionStorage.removeItem("pm_admin_token");
+      }
+      throw new Error(data.error || "Request failed (" + response.status + ")");
+    }
+
+    return data;
+  }
+
+  function showDashboard() {
+    $("loginCard").classList.add("hidden");
+    $("dashboard").classList.remove("hidden");
+    $("logoutBtn").classList.remove("hidden");
+    loadKeys();
+    loadConfig();
+  }
+
+  $("loginBtn").addEventListener("click", async () => {
+    message("loginStatus", "Logging in…");
+
+    try {
+      const data = await api("/api/admin/login", {
+        method: "POST",
+        body: JSON.stringify({
+          username: $("username").value,
+          password: $("password").value
+        })
+      });
+
+      adminToken = data.token;
+      sessionStorage.setItem("pm_admin_token", adminToken);
+      showDashboard();
+    } catch (e) {
+      message("loginStatus", e.message, true);
+    }
+  });
+
+  $("logoutBtn").addEventListener("click", async () => {
+    try {
+      await api("/api/admin/logout", {method:"POST"});
+    } catch {}
+
+    adminToken = "";
+    sessionStorage.removeItem("pm_admin_token");
+    $("dashboard").classList.add("hidden");
+    $("logoutBtn").classList.add("hidden");
+    $("loginCard").classList.remove("hidden");
+    $("password").value = "";
+  });
+
+  $("generateBtn").addEventListener("click", async () => {
+    $("generateBtn").disabled = true;
+    $("generatedBox").classList.add("hidden");
+
+    try {
+      const data = await api("/api/admin/generate-key", {
+        method:"POST",
+        body:JSON.stringify({type:$("keyType").value})
+      });
+
+      currentKey = data.key;
+      $("generatedKey").textContent = currentKey;
+      $("generatedBox").classList.remove("hidden");
+      message("status", "Key generated successfully.");
+      loadKeys();
+    } catch(e) {
+      message("status", e.message, true);
+    } finally {
+      $("generateBtn").disabled = false;
+    }
+  });
+
+  $("copyKeyBtn").addEventListener("click", async () => {
+    if (!currentKey) return;
+
+    try {
+      await navigator.clipboard.writeText(currentKey);
+      message("status", "Key copied.");
+    } catch {
+      message("status", "Copy failed. Please select and copy the key manually.", true);
+    }
+  });
+
+  async function loadKeys() {
+    $("keysList").textContent = "Loading…";
+
+    try {
+      const data = await api("/api/admin/keys");
+      const keys = data.keys || [];
+      $("keysList").replaceChildren();
+
+      if (!keys.length) {
+        $("keysList").textContent = "No keys generated yet.";
+        return;
+      }
+
+      keys.forEach(k => {
+        const item = document.createElement("div");
+        item.className = "item";
+
+        const title = document.createElement("strong");
+        title.textContent = (k.prefix || "Key") + " — " + (k.type || "");
+
+        const detail = document.createElement("div");
+        detail.className = "muted";
+        detail.textContent =
+          "Created: " + (k.createdAt || "—") +
+          " | Activated: " + (k.activatedAt || "Not activated") +
+          " | Expires: " + (k.expiresAt || "Not set") +
+          " | Uses: " + (k.uses || 0) +
+          " | " + (k.revoked ? "REVOKED" : "Active");
+
+        const revoke = document.createElement("button");
+        revoke.className = "danger";
+        revoke.textContent = k.revoked ? "Revoked" : "Revoke";
+        revoke.disabled = !!k.revoked;
+
+        revoke.addEventListener("click", async () => {
+          if (!confirm("Revoke this key?")) return;
+
+          try {
+            await api("/api/admin/revoke-key", {
+              method:"POST",
+              body:JSON.stringify({
+                prefix:k.prefix,
+                createdAt:k.createdAt
+              })
+            });
+
+            loadKeys();
+            message("status", "Key revoked.");
+          } catch(e) {
+            message("status", e.message, true);
+          }
+        });
+
+        item.append(title, detail, revoke);
+        $("keysList").append(item);
+      });
+    } catch(e) {
+      $("keysList").textContent = e.message;
+      message("status", e.message, true);
+    }
+  }
+
+  $("refreshKeysBtn").addEventListener("click", loadKeys);
+
+  async function batchAction(action) {
+    const id = $("batchId").value.trim();
+
+    if (!id) {
+      message("batchStatus", "Enter a Batch ID first.", true);
+      return;
+    }
+
+    const body = {action, id};
+
+    if (action === "add") {
+      body.title = $("batchTitle").value.trim();
+      body.thumbnail = $("batchThumbnail").value.trim();
+      body.courseUrl = $("batchCourseUrl").value.trim();
+    }
+
+    try {
+      await api("/api/admin/batches", {
+        method:"POST",
+        body:JSON.stringify(body)
+      });
+
+      message("batchStatus", "Batch action completed: " + action);
+    } catch(e) {
+      message("batchStatus", e.message, true);
+    }
+  }
+
+  $("addBatchBtn").addEventListener("click", () => batchAction("add"));
+  $("hideBatchBtn").addEventListener("click", () => batchAction("hide"));
+  $("showBatchBtn").addEventListener("click", () => batchAction("show"));
+
+  $("removeBatchBtn").addEventListener("click", () => {
+    if (confirm("Remove this custom batch and hide its ID?")) {
+      batchAction("remove");
+    }
+  });
+
+  async function loadConfig() {
+    try {
+      const data = await api("/api/public-config");
+      const c = data.config || {};
+
+      $("purchaseTelegram").value = c.purchaseTelegram || "";
+      $("telegramChannel").value = c.telegramChannel || "";
+      $("twentyFourHourUrl").value = c.twentyFourHourUrl || "";
+      $("howToGenerate24hVideoUrl").value =
+        c.howToGenerate24hVideoUrl || "";
+      $("howToBuyPremiumVideoUrl").value =
+        c.howToBuyPremiumVideoUrl || "";
+    } catch(e) {
+      message("status", "Could not load settings: " + e.message, true);
+    }
+  }
+
+  $("saveConfigBtn").addEventListener("click", async () => {
+    $("saveConfigBtn").disabled = true;
+
+    try {
+      await api("/api/admin/config", {
+        method:"POST",
+        body:JSON.stringify({
+          purchaseTelegram:$("purchaseTelegram").value.trim(),
+          telegramChannel:$("telegramChannel").value.trim(),
+          twentyFourHourUrl:$("twentyFourHourUrl").value.trim(),
+          howToGenerate24hVideoUrl:
+            $("howToGenerate24hVideoUrl").value.trim(),
+          howToBuyPremiumVideoUrl:
+            $("howToBuyPremiumVideoUrl").value.trim()
+        })
+      });
+
+      message("status", "Settings saved successfully.");
+    } catch(e) {
+      message("status", e.message, true);
+    } finally {
+      $("saveConfigBtn").disabled = false;
+    }
+  });
+
+  if (adminToken) showDashboard();
+})();
+</script>
+</body>
+</html>
