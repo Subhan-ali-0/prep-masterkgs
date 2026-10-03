@@ -1,0 +1,756 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <meta
+    name="theme-color"
+    content="#ffffff"
+  >
+
+  <title>Prep Master</title>
+
+  <link
+    rel="stylesheet"
+    href="/assets/style.css"
+  >
+
+  <script
+    src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"
+  ></script>
+
+  <!-- 24H CLAIM PAGE STYLE -->
+  <style>
+    .claim-card {
+      max-width: 500px;
+      margin: 25px auto;
+      padding: 30px 20px;
+      text-align: center;
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 16px;
+      color: #171717;
+    }
+
+    .claim-icon {
+      font-size: 55px;
+      margin-bottom: 15px;
+    }
+
+    .claim-card h2 {
+      font-size: 25px;
+      margin-bottom: 12px;
+    }
+
+    .claim-card p {
+      color: #777;
+      line-height: 1.6;
+      margin-bottom: 22px;
+    }
+
+    .claim-status-box {
+      padding: 16px;
+      margin: 20px 0;
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+    }
+
+    .claim-status-box strong {
+      display: block;
+      margin-bottom: 7px;
+      color: #171717;
+    }
+
+    .claim-status-box span {
+      font-size: 13px;
+      color: #777;
+    }
+
+    .claim-card .claim-home-btn {
+      display: inline-block;
+      margin-top: 15px;
+      text-decoration: none;
+      padding: 12px 22px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      color: #171717;
+    }
+  </style>
+
+</head>
+
+<body>
+
+<!-- =========================
+     MAIN PREP MASTER HEADER
+     ========================= -->
+
+<header class="topbar">
+
+  <a
+    class="brand"
+    href="#home"
+  >
+
+    <img
+      src="/assets/prep-master-logo.png"
+      alt="Prep Master"
+    >
+
+    <span>
+      Prep Master
+    </span>
+
+  </a>
+
+  <button
+    id="menuBtn"
+    class="menu-btn"
+    type="button"
+    aria-label="Menu"
+    aria-expanded="false"
+  >
+    <i></i>
+    <i></i>
+    <i></i>
+  </button>
+
+  <nav
+    id="menuPanel"
+    class="menu-panel"
+    aria-hidden="true"
+  >
+
+    <a
+      href="https://t.me/prepmaster0"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      Telegram
+    </a>
+
+    <a
+      href="#batches"
+      data-view="batches"
+    >
+      Batches
+    </a>
+
+    <a
+      href="#my-batches"
+      data-view="my-batches"
+    >
+      My Batches
+    </a>
+
+  </nav>
+
+</header>
+
+
+<!-- =========================
+     MAIN WEBSITE
+     ========================= -->
+
+<main>
+
+  <!-- HOME -->
+
+  <section
+    id="home"
+    class="page-view hero"
+    data-page="home"
+  >
+
+    <div>
+
+      <p class="eyebrow">
+        PREP MASTER
+      </p>
+
+      <h1>
+        Learn smarter.
+        <br>
+        <span>
+          Prepare better.
+        </span>
+      </h1>
+
+      <p class="hero-text">
+        Access your batches, classes and study material from one clean learning space.
+      </p>
+
+      <div class="hero-actions">
+
+        <button
+          class="primary-btn view-btn"
+          type="button"
+          data-view="batches"
+        >
+          Batches
+          <b>→</b>
+        </button>
+
+        <button
+          class="secondary-btn view-btn"
+          type="button"
+          data-view="my-batches"
+        >
+          My Batches
+        </button>
+
+      </div>
+
+    </div>
+  </section>
+
+
+  <!-- BATCHES -->
+
+  <section
+    id="batches"
+    class="page-view section"
+    data-page="batches"
+  >
+
+    <div class="section-head">
+
+      <div>
+
+        <p class="eyebrow">
+          AVAILABLE COURSES
+        </p>
+
+        <h2>
+          Batches
+        </h2>
+
+      </div>
+
+      <button
+        id="refreshBatches"
+        class="small-btn"
+        type="button"
+      >
+        Refresh
+      </button>
+
+    </div>
+
+    <div
+      id="batchStatus"
+      class="status"
+    >
+      Loading batches…
+    </div>
+
+    <div
+      id="batchGrid"
+      class="batch-grid"
+    ></div>
+
+  </section>
+
+
+  <!-- MY BATCHES -->
+
+  <section
+    id="my-batches"
+    class="page-view section my-section"
+    data-page="my-batches"
+  >
+
+    <div class="section-head">
+
+      <div>
+
+        <p class="eyebrow">
+          SAVED ON THIS DEVICE
+        </p>
+
+        <h2>
+          My Batches
+        </h2>
+
+      </div>
+
+      <button
+        id="clearSaved"
+        class="small-btn danger"
+        type="button"
+      >
+        Clear All
+      </button>
+
+    </div>
+
+    <div
+      id="myBatchGrid"
+      class="batch-grid"
+    ></div>
+
+    <p
+      id="myEmpty"
+      class="empty"
+    >
+      No batches saved yet.
+      Add a batch to see it here.
+    </p>
+
+  </section>
+
+
+  <!-- =========================
+       24H PREMIUM CLAIM PAGE
+       ========================= -->
+
+  <section
+    id="claim"
+    class="page-view section"
+    data-page="claim"
+  >
+
+    <div class="section-head">
+
+      <div>
+
+        <p class="eyebrow">
+          PREP MASTER PREMIUM
+        </p>
+
+        <h2>
+          Claim 24H Premium
+        </h2>
+
+      </div>
+
+    </div>
+
+    <div class="claim-card">
+
+      <div class="claim-icon">
+        🎁
+      </div>
+
+      <h2>
+        Congratulations! 🎉
+      </h2>
+
+      <p>
+        Welcome to Prep Master 24H Premium Access.
+        Complete the required verification to claim
+        your temporary access key.
+      </p>
+
+      <div class="claim-status-box">
+
+        <strong id="claimStatus">
+          🔒 Verification Pending
+        </strong>
+
+        <span id="claimMessage">
+          Your completion status is being checked.
+          Please wait for verification.
+        </span>
+
+      </div>
+
+      <div id="claimKeyBox" class="hidden">
+
+        <label for="generatedClaimKey">
+          Your 24H Access Key
+        </label>
+
+        <input
+          id="generatedClaimKey"
+          type="text"
+          readonly
+          placeholder="Your key will appear here"
+        >
+
+        <button
+          id="copyClaimKey"
+          class="primary-btn"
+          type="button"
+        >
+          Copy Key
+        </button>
+
+      </div>
+
+      <a
+        href="#home"
+        class="claim-home-btn"
+      >
+        ← Back to Home
+      </a>
+
+    </div>
+
+  </section>
+
+</main>
+
+
+<!-- =========================
+     PREMIUM ACCESS
+     ========================= -->
+
+<div id="premiumGate" class="premium-gate hidden">
+
+  <div class="premium-card">
+
+    <div class="premium-icon">
+      🔐
+    </div>
+
+    <p class="premium-eyebrow">
+      PREP MASTER PREMIUM
+    </p>
+
+    <h2>
+      Premium Access
+    </h2>
+
+    <p class="premium-subtitle">
+      This batch requires premium access to continue.
+    </p>
+
+    <label for="access24Key">
+      🔑 24H ACCESS KEY
+    </label>
+
+    <input
+      id="access24Key"
+      type="text"
+      autocomplete="off"
+      placeholder="Enter 24H Access Key"
+    >
+
+    <button
+      id="verify24KeyBtn"
+      class="premium-btn primary"
+      type="button"
+    >
+      ✅ VERIFY 24H KEY
+    </button>
+
+    <div class="premium-or">
+      <span>OR</span>
+    </div>
+
+    <label for="premiumKey">
+      👑 PREMIUM ACCESS KEY
+    </label>
+
+    <input
+      id="premiumKey"
+      type="text"
+      autocomplete="off"
+      placeholder="Enter Premium Key"
+    >
+
+    <button
+      id="verifyPremiumKeyBtn"
+      class="premium-btn outline"
+      type="button"
+    >
+      🔓 VERIFY PREMIUM KEY
+    </button>
+
+    <button
+      id="get24KeyBtn"
+      class="premium-btn light"
+      type="button"
+    >
+      🎁 GET 24H KEY
+    </button>
+
+    <button
+      id="buyPremiumBtn"
+      class="premium-btn outline"
+      type="button"
+    >
+      💳 BUY PREMIUM KEY
+    </button>
+
+    <button
+      id="premiumBackBtn"
+      class="premium-back"
+      type="button"
+    >
+      ⬅️ Back to Batches
+    </button>
+
+  </div>
+
+</div>
+
+
+<!-- =========================
+     COURSE VIEWER
+     ========================= -->
+
+<div
+  id="courseViewer"
+  class="course-viewer hidden"
+>
+
+  <header class="course-viewer-header">
+
+    <button
+      id="courseBackBtn"
+      class="course-back-btn"
+      type="button"
+      aria-label="Back"
+    >
+      ←
+    </button>
+
+    <div class="course-brand">
+
+      <img
+        src="/assets/prep-master-logo.png"
+        alt="Prep Master"
+      >
+
+      <span>
+        Prep Master
+      </span>
+
+    </div>
+
+    <button
+      id="courseCloseBtn"
+      class="course-close-btn"
+      type="button"
+      aria-label="Close"
+    >
+      ×
+    </button>
+
+  </header>
+
+
+  <div class="course-iframe-crop">
+
+    <iframe
+      id="courseFrame"
+      title="Prep Master Course"
+      allowfullscreen
+      allow="autoplay; fullscreen; picture-in-picture"
+      referrerpolicy="strict-origin-when-cross-origin"
+    ></iframe>
+
+  </div>
+
+
+  <!-- Loading layer -->
+
+  <div
+    id="courseLoading"
+    class="course-loading"
+  >
+
+    <div class="course-loading-box">
+
+      <div class="loading-spinner"></div>
+
+      <strong>
+        Loading course…
+      </strong>
+
+      <span>
+        Please wait
+      </span>
+
+    </div>
+
+  </div>
+
+
+  <!-- Error layer -->
+
+  <div
+    id="courseError"
+    class="course-error hidden"
+  >
+
+    <div class="course-error-box">
+
+      <div class="course-error-icon">
+        !
+      </div>
+
+      <h3>
+        Course could not be loaded
+      </h3>
+
+      <p>
+        The external course page may not allow iframe embedding.
+      </p>
+
+      <button
+        id="retryCourse"
+        class="primary-btn"
+        type="button"
+      >
+        Retry
+      </button>
+
+    </div>
+
+  </div>
+
+</div>
+
+
+<!-- =========================
+     VIDEO PLAYER
+     ========================= -->
+
+<div
+  id="videoModal"
+  class="modal hidden"
+>
+
+  <div class="modal-box player-box">
+
+    <div class="modal-head">
+
+      <div>
+
+        <p class="eyebrow">
+          CLASS
+        </p>
+
+        <h2 id="videoTitle">
+          Video
+        </h2>
+
+      </div>
+
+      <button
+        class="close-btn"
+        data-close="videoModal"
+        type="button"
+      >
+        ×
+      </button>
+
+    </div>
+
+    <div class="video-wrap">
+
+      <video
+        id="videoPlayer"
+        controls
+        playsinline
+        preload="metadata"
+      ></video>
+
+    </div>
+
+    <div
+      id="videoInfo"
+      class="video-info"
+    ></div>
+
+  </div>
+
+</div>
+
+
+<!-- =========================
+     MATERIAL VIEWER
+     ========================= -->
+
+<div
+  id="materialModal"
+  class="modal hidden"
+>
+
+  <div class="modal-box material-box">
+
+    <div class="modal-head">
+
+      <div>
+
+        <p class="eyebrow">
+          STUDY MATERIAL
+        </p>
+
+        <h2 id="materialTitle">
+          PDF / File
+        </h2>
+
+      </div>
+
+      <button
+        class="close-btn"
+        data-close="materialModal"
+        type="button"
+      >
+        ×
+      </button>
+
+    </div>
+
+    <div class="material-actions">
+
+      <a
+        id="materialOpen"
+        class="primary-btn"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Open Material ↗
+      </a>
+
+    </div>
+
+    <iframe
+      id="materialFrame"
+      title="Study material preview"
+    ></iframe>
+
+  </div>
+
+</div>
+
+
+<!-- TOAST -->
+
+<div
+  id="toast"
+  class="toast"
+></div>
+
+
+<!-- FOOTER -->
+
+<footer>
+
+  <img
+    src="/assets/prep-master-logo.png"
+    alt="Prep Master"
+  >
+
+  <span>
+    © 2026 Prep Master
+  </span>
+
+</footer>
+
+
+<script src="/assets/app.js"></script>
+
+</body>
+</html>
