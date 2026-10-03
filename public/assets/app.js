@@ -1,5 +1,6 @@
 const state = {
   batches: [],
+  searchTerm: "",
   currentBatch: null,
   activeCourseUrl: "",
   hls: null,
@@ -791,6 +792,11 @@ function setupHomeBatches() {
 
     </div>
 
+    <label class="batch-search-wrap home-batch-search" for="homeBatchSearch">
+      <span aria-hidden="true">🔎</span>
+      <input id="homeBatchSearch" class="batch-search" type="search" placeholder="Search batches by name or ID..." autocomplete="off">
+    </label>
+
     <div
       id="homeBatchStatus"
       class="batch-status"
@@ -918,10 +924,14 @@ function setupHomeBatches() {
 
 function renderBatches() {
 
-  /*
-    Main Batches page grid
-  */
+  const term = String(state.searchTerm || "").trim().toLowerCase();
+  const visibleBatches = state.batches.filter(batch => {
+    const searchable = [batch.title, batch.name, batch.id, batch.category, batch.category_name]
+      .filter(value => value != null).join(" ").toLowerCase();
+    return !term || searchable.includes(term);
+  });
 
+  /* Main Batches page grid */
   const grid =
     $("batchGrid");
 
@@ -929,7 +939,7 @@ function renderBatches() {
   if (grid) {
 
     grid.innerHTML =
-      state.batches
+      visibleBatches
         .map(
           batch =>
             batchCard(
@@ -937,7 +947,7 @@ function renderBatches() {
               false
             )
         )
-        .join("");
+        .join("") || `<p class="batch-search-empty">No batches match your search.</p>`;
 
     bindBatchButtons(grid);
   }
@@ -954,7 +964,7 @@ function renderBatches() {
   if (homeGrid) {
 
     homeGrid.innerHTML =
-      state.batches
+      visibleBatches
         .map(
           batch =>
             batchCard(
@@ -962,7 +972,7 @@ function renderBatches() {
               false
             )
         )
-        .join("");
+        .join("") || `<p class="batch-search-empty">No batches match your search.</p>`;
 
     bindBatchButtons(
       homeGrid
@@ -976,8 +986,9 @@ function renderBatches() {
 
   if (homeStatus) {
 
-    homeStatus.textContent =
-      state.batches.length
+    homeStatus.textContent = term
+      ? `${visibleBatches.length} matching batches`
+      : state.batches.length
         ? `${state.batches.length} batches available`
         : "No batches available";
   }
@@ -1730,6 +1741,21 @@ window.addEventListener(
   }
 );
 
+
+// ==================================================
+// BATCH SEARCH (home + batches page)
+// ==================================================
+function syncBatchSearch(value) {
+  state.searchTerm = String(value || "");
+  [$("batchSearch"), $("homeBatchSearch")].forEach(input => {
+    if (input && input.value !== state.searchTerm) input.value = state.searchTerm;
+  });
+  renderBatches();
+}
+["batchSearch", "homeBatchSearch"].forEach(id => {
+  const input = $(id);
+  if (input) input.addEventListener("input", () => syncBatchSearch(input.value));
+});
 
 // ==================================================
 // MENU
