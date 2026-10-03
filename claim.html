@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claim 24H Key | Prep Master</title>
+  <style>
+    *{box-sizing:border-box}
+    body{
+      margin:0;min-height:100vh;display:grid;place-items:center;
+      padding:18px;background:#f6f7fb;color:#202431;
+      font-family:Arial,sans-serif
+    }
+    .wrap{width:100%;max-width:480px}
+    .card{
+      background:#fff;border:1px solid #e7e9ef;border-radius:20px;
+      padding:24px;box-shadow:0 12px 35px rgba(30,50,90,.08)
+    }
+    .brand{text-align:center;margin-bottom:22px}
+    .logo{
+      width:58px;height:58px;border-radius:18px;margin:0 auto 12px;
+      display:grid;place-items:center;background:#edf2ff;color:#2458d3;
+      font-size:25px;font-weight:800
+    }
+    h1{font-size:23px;margin:0 0 7px}
+    h2{font-size:17px;margin:0 0 10px}
+    p{color:#697386;font-size:14px;line-height:1.55;margin:7px 0 15px}
+    .section{
+      border:1px solid #edf0f5;border-radius:14px;padding:16px;
+      margin-top:14px
+    }
+    button{
+      width:100%;border:0;border-radius:10px;padding:13px 15px;
+      background:#245eea;color:#fff;font-size:15px;font-weight:700;
+      cursor:pointer;margin-top:9px
+    }
+    button.secondary{background:#eef2ff;color:#234db8}
+    button:disabled{opacity:.6;cursor:not-allowed}
+    .keybox{
+      margin-top:12px;padding:15px;border-radius:10px;
+      background:#f2f5ff;border:1px dashed #a9bdf5;
+      font-size:18px;font-weight:800;letter-spacing:1px;
+      overflow-wrap:anywhere;text-align:center;display:none
+    }
+    .status{
+      display:none;padding:11px 12px;border-radius:9px;margin-top:12px;
+      background:#eef2ff;color:#234db8;font-size:13px;
+      line-height:1.5;overflow-wrap:anywhere
+    }
+    .status.error{background:#fff0f0;color:#a11}
+    .small{text-align:center;font-size:12px;margin-top:17px;color:#8790a0}
+    .help-buttons{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+    .help-buttons button{font-size:13px;line-height:1.35}
+    @media(max-width:390px){
+      .help-buttons{grid-template-columns:1fr}
+      .card{padding:18px}
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <div class="card">
+      <div class="brand">
+        <div class="logo">PM</div>
+        <h1>Prep Master</h1>
+        <p>Claim your 24-hour access key</p>
+      </div>
+
+      <section class="section">
+        <h2>Step 1 — Complete the key-link step</h2>
+        <p>Continue using the key link configured by the administrator.</p>
+        <button id="getKeyLinkBtn" class="secondary" type="button">
+          Get 24H Key
+        </button>
+      </section>
+
+      <section class="section">
+        <h2>Step 2 — Generate your key</h2>
+        <p>After returning to this page, press the button below to generate your key.</p>
+        <button id="generateBtn" type="button">Generate 24H Key</button>
+
+        <div id="keyBox" class="keybox"></div>
+        <button id="copyBtn" class="secondary" type="button" style="display:none">
+          Copy Key
+        </button>
+        <div id="status" class="status" role="status"></div>
+      </section>
+
+      <section class="section">
+        <h2>Need help?</h2>
+        <p>Open the tutorial videos configured by the administrator.</p>
+        <div class="help-buttons">
+          <button id="generateHelpBtn" class="secondary" type="button" style="display:none">
+            How to Generate 24H Key
+          </button>
+          <button id="buyHelpBtn" class="secondary" type="button" style="display:none">
+            How to Buy Premium Key
+          </button>
+        </div>
+        <div id="helpStatus" class="status"></div>
+      </section>
+
+      <div class="small">Prep Master • 24-hour key access</div>
+    </div>
+  </main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+
+  let config = {};
+  let generatedKey = "";
+
+  function showStatus(text, isError=false) {
+    const el = $("status");
+    el.textContent = text;
+    el.classList.add("status");
+    el.style.display = "block";
+    el.classList.toggle("error", isError);
+  }
+
+  function validHttpUrl(value) {
+    try {
+      const url = new URL(String(value || "").trim());
+      return url.protocol === "https:" || url.protocol === "http:"
+        ? url.href
+        : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function openConfiguredUrl(value, label) {
+    const url = validHttpUrl(value);
+
+    if (!url) {
+      $("helpStatus").textContent = label + " link is not configured yet.";
+      $("helpStatus").style.display = "block";
+      return;
+    }
+
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  async function loadConfig() {
+    try {
+      const response = await fetch("/api/public-config", {
+        headers: {Accept:"application/json"}
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || "Could not load settings.");
+      }
+
+      config = data.config || {};
+
+      $("getKeyLinkBtn").disabled =
+        !validHttpUrl(config.twentyFourHourUrl);
+
+      $("generateHelpBtn").style.display =
+        validHttpUrl(config.howToGenerate24hVideoUrl) ? "block" : "none";
+
+      $("buyHelpBtn").style.display =
+        validHttpUrl(config.howToBuyPremiumVideoUrl) ? "block" : "none";
+    } catch (error) {
+      $("getKeyLinkBtn").disabled = true;
+      $("helpStatus").textContent =
+        "Could not load page settings. Please refresh and try again.";
+      $("helpStatus").style.display = "block";
+    }
+  }
+
+  $("getKeyLinkBtn").addEventListener("click", () => {
+    openConfiguredUrl(config.twentyFourHourUrl, "24H key");
+  });
+
+  $("generateHelpBtn").addEventListener("click", () => {
+    openConfiguredUrl(
+      config.howToGenerate24hVideoUrl,
+      "Generate 24H Key tutorial"
+    );
+  });
+
+  $("buyHelpBtn").addEventListener("click", () => {
+    openConfiguredUrl(
+      config.howToBuyPremiumVideoUrl,
+      "Buy Premium Key tutorial"
+    );
+  });
+
+  $("generateBtn").addEventListener("click", async () => {
+    $("generateBtn").disabled = true;
+    $("generateBtn").textContent = "Generating…";
+    $("keyBox").style.display = "none";
+    $("copyBtn").style.display = "none";
+    generatedKey = "";
+
+    try {
+      const response = await fetch("/api/claim-24h", {
+        method:"POST",
+        headers: {
+          "Content-Type":"application/json",
+          "Accept":"application/json"
+        },
+        body:JSON.stringify({})
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || data.success === false) {
+        if (data.retryAfterSeconds) {
+          throw new Error(
+            (data.error || "Please wait.") +
+            " Try again in " + data.retryAfterSeconds + " seconds."
+          );
+        }
+        throw new Error(data.error || "Unable to generate key.");
+      }
+
+      generatedKey = String(data.key || "");
+
+      if (!generatedKey) {
+        throw new Error("Server did not return a key. Please try again.");
+      }
+
+      $("keyBox").textContent = generatedKey;
+      $("keyBox").style.display = "block";
+      $("copyBtn").style.display = "block";
+      showStatus("Your 24-hour key has been generated. Copy it and enter it in Prep Master.");
+    } catch (error) {
+      showStatus(error.message || "Something went wrong.", true);
+    } finally {
+      $("generateBtn").disabled = false;
+      $("generateBtn").textContent = "Generate 24H Key";
+    }
+  });
+
+  $("copyBtn").addEventListener("click", async () => {
+    if (!generatedKey) return;
+
+    try {
+      await navigator.clipboard.writeText(generatedKey);
+      showStatus("Key copied successfully.");
+    } catch {
+      showStatus("Copy is unavailable. Select the key and copy it manually.", true);
+    }
+  });
+
+  loadConfig();
+})();
+</script>
+</body>
+</html>
