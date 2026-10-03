@@ -91,16 +91,25 @@ function hidePremiumGate() {
 function openPremiumCourse() {
   const batch = state.currentBatch;
   if (!batch) return;
-  hidePremiumGate();
+
   const viewer = $("courseViewer");
   const frame = $("courseFrame");
   const loading = $("courseLoading");
   const errorBox = $("courseError");
+  const title = $("courseTitle");
   const url = `https://sahukgs.com/batch/${encodeURIComponent(batch.id)}`;
+
   state.activeCourseUrl = url;
   document.title = `${batch.title || "Batch"} - Prep Master`;
-  // Key is verified before this function is called; then open the KGS batch URL.
-  window.location.assign(url);
+  if (title) title.textContent = batch.title || `Batch ${batch.id}`;
+  if (errorBox) errorBox.classList.add("hidden");
+  if (loading) loading.classList.remove("hidden");
+  hidePremiumGate();
+
+  // Keep the Prep Master header visible and load the selected batch inside it.
+  if (viewer) viewer.classList.remove("hidden");
+  document.body.classList.add("viewer-open");
+  if (frame) frame.src = url;
 }
 
 
@@ -1504,6 +1513,8 @@ const verify24KeyBtn = $("verify24KeyBtn");
 const verifyPremiumKeyBtn = $("verifyPremiumKeyBtn");
 const get24KeyBtn = $("get24KeyBtn");
 const buyPremiumBtn = $("buyPremiumBtn");
+const howGenerateKeyBtn = $("howGenerateKeyBtn");
+const howBuyPremiumKeyBtn = $("howBuyPremiumKeyBtn");
 const premiumBackBtn = $("premiumBackBtn");
 const access24Key = $("access24Key");
 const premiumKey = $("premiumKey");
@@ -1530,11 +1541,27 @@ if (get24KeyBtn) {
 
 if (buyPremiumBtn) {
   buyPremiumBtn.onclick = () => {
-    const batchName = state.currentBatch?.title || "Vidyagram batch";
+    const batchName = state.currentBatch?.title || "KGS batch";
     const message = `Hello, mujhe ${batchName} ki Premium Key leni hai. Please premium key ka price aur payment details bhej dijiye.`;
     const username = String(publicConfig.purchaseTelegram || "Subhanali011").replace(/^@/, "");
     const url = `https://t.me/${username}?text=${encodeURIComponent(message)}`;
     window.open(url, "_blank", "noopener,noreferrer");
+  };
+}
+
+if (howGenerateKeyBtn) {
+  howGenerateKeyBtn.onclick = () => {
+    const url = publicConfig.howToGenerate24hVideoUrl;
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+    else showToast("Admin has not added the 24H key tutorial link yet.");
+  };
+}
+
+if (howBuyPremiumKeyBtn) {
+  howBuyPremiumKeyBtn.onclick = () => {
+    const url = publicConfig.howToBuyPremiumVideoUrl;
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+    else showToast("Admin has not added the Premium key tutorial link yet.");
   };
 }
 
